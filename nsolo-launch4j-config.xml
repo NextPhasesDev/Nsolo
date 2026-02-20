@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch4jConfig>
+  <dontWrapJar>false</dontWrapJar>
+  <headerType>gui</headerType>
+  <jar>C:\Users\HPG8\IdeaProjects\nsolo-v2\src\Nsolo.jar</jar>
+  <outfile>C:\Users\HPG8\Desktop\Thuma\Projects\Nsolo-Releases\Nsolo.exe</outfile>
+  <errTitle>Nsolo Error</errTitle>
+  <cmdLine></cmdLine>
+  <chdir>.</chdir>
+  <priority>normal</priority>
+  <downloadUrl>http://java.com/download</downloadUrl>
+  <supportUrl></supportUrl>
+  <stayAlive>false</stayAlive>
+  <restartOnCrash>false</restartOnCrash>
+  <manifest></manifest>
+  <icon>C:\Users\HPG8\IdeaProjects\nsolo-v2\src\resources\icon.ico</icon>
+  <jre>
+    <path>C:\Program Files\Common Files\Oracle\Java\javapath</path>
+    <requiresJdk>false</requiresJdk>
+    <requires64Bit>false</requires64Bit>
+    <minVersion>1.8.0</minVersion>
+    <maxVersion></maxVersion>
+  </jre>
+  <versionInfo>
+    <fileVersion>1.1.0.0</fileVersion>
+    <txtFileVersion>1.1.0</txtFileVersion>
+    <fileDescription>Nsolo - Traditional Zambian Board Game</fileDescription>
+    <copyright>2026</copyright>
+    <productVersion>1.1.0.0</productVersion>
+    <txtProductVersion>1.1.0</txtProductVersion>
+    <productName>Nsolo</productName>
+    <companyName></companyName>
+    <internalName>Nsolo</internalName>
+    <originalFilename>Nsolo.exe</originalFilename>
+    <trademarks></trademarks>
+    <language>ENGLISH_US</language>
+  </versionInfo>
+</launch4jConfig>

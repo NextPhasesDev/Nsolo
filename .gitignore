@@ -1,0 +1,23 @@
+# Compiled output
+*.class
+*.jar
+out/
+build/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Launch4j output
+*.exe
+
+# Releases (keep these local or use GitHub Releases instead)
+releases/
+*-releases/
