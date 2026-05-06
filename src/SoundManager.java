@@ -9,7 +9,8 @@ public class SoundManager {
     private Map<String, Clip> soundClips;
     private Clip backgroundMusic;
     private boolean isMuted;
-    private float volume;
+    private float musicVolume;
+    private float sfxVolume;
     private String currentMusicType;
 
     // Music intensity levels for dynamic music
@@ -19,7 +20,9 @@ public class SoundManager {
     private SoundManager() {
         soundClips = new HashMap<>();
         isMuted = false;
-        volume = 0.7f;
+        musicVolume = 0.7f;
+        sfxVolume = 0.7f;
+        loadVolumesFromConfig();
         loadSounds();
     }
 
@@ -33,48 +36,55 @@ public class SoundManager {
     private void loadSounds() {
         try {
             // === SOUND EFFECTS ===
-            // Stone drop - warm wooden thud
-            soundClips.put("drop", generateWoodenDrop());
-
-            // Stone pickup - soft lift sound
-            soundClips.put("pickup", generatePickupSound());
-
-            // Capture sound - satisfying victory chime
-            soundClips.put("capture", generateCaptureSound());
-
-            // Move complete - gentle confirmation
-            soundClips.put("complete", generateCompleteSound());
-
-            // Invalid move - soft warning
-            soundClips.put("invalid", generateInvalidSound());
-
-            // Button click - crisp UI feedback
-            soundClips.put("click", generateClickSound());
-
-            // Win fanfare
-            soundClips.put("win", generateWinFanfare());
-
-            // Lose sound
-            soundClips.put("lose", generateLoseSound());
+            soundClips.put("click", clipOrFallback("/resources/sounds/click.wav", this::generateClickSound));
+            soundClips.put("drop", clipOrFallback("/resources/sounds/drop.wav", this::generateWoodenDrop));
+            soundClips.put("capture", clipOrFallback("/resources/sounds/capture.wav", this::generateCaptureSound));
+            soundClips.put("pickup", clipOrFallback("/resources/sounds/pickup.wav", this::generatePickupSound));
+            soundClips.put("complete", clipOrFallback("/resources/sounds/complete.wav", this::generateCompleteSound));
+            soundClips.put("invalid", clipOrFallback("/resources/sounds/invalid.wav", this::generateInvalidSound));
+            soundClips.put("win", clipOrFallback("/resources/sounds/win.wav", this::generateWinFanfare));
+            soundClips.put("lose", clipOrFallback("/resources/sounds/lose.wav", this::generateLoseSound));
 
             // === BACKGROUND MUSIC ===
-            // Menu music - calm, welcoming African-inspired melody
-            soundClips.put("menu_music", generateMenuMusic());
-
-            // PvP music - rhythmic, balanced energy
-            soundClips.put("pvp_music", generatePvPMusic());
-
-            // AI Easy music - relaxed, peaceful
-            soundClips.put("ai_easy_music", generateRelaxedMusic());
-
-            // AI Hard music - tense, strategic
-            soundClips.put("ai_hard_music", generateTenseMusic());
-
-            // Intense music - for close games
-            soundClips.put("intense_music", generateIntenseMusic());
+            soundClips.put("menu_music", clipOrFallback("/resources/sounds/menu_music.wav", this::generateMenuMusic));
+            soundClips.put("pvp_music", clipOrFallback("/resources/sounds/pvp_music.wav", this::generatePvPMusic));
+            soundClips.put("ai_easy_music", clipOrFallback("/resources/sounds/ai_easy_music.wav", this::generateRelaxedMusic));
+            soundClips.put("ai_hard_music", clipOrFallback("/resources/sounds/ai_hard_music.wav", this::generateTenseMusic));
+            soundClips.put("intense_music", clipOrFallback("/resources/sounds/intense_music.wav", this::generateIntenseMusic));
 
         } catch (Exception e) {
             System.err.println("Error loading sounds: " + e.getMessage());
+        }
+    }
+
+    private interface ClipSupplier {
+        Clip get() throws Exception;
+    }
+
+    private Clip clipOrFallback(String path, ClipSupplier fallbackSupplier) {
+        Clip realClip = loadClip(path);
+        if (realClip != null) {
+            return realClip;
+        }
+        try {
+            return fallbackSupplier.get();
+        } catch (Exception e) {
+            System.err.println("Failed to generate fallback sound for: " + path);
+            return null;
+        }
+    }
+
+    private Clip loadClip(String path) {
+        try {
+            AudioInputStream ais = AudioSystem.getAudioInputStream(
+                    getClass().getResource(path)
+            );
+            Clip clip = AudioSystem.getClip();
+            clip.open(ais);
+            return clip;
+        } catch (Exception e) {
+            System.err.println("Failed to load sound: " + path);
+            return null;
         }
     }
 
@@ -82,22 +92,22 @@ public class SoundManager {
 
     private Clip generateWoodenDrop() throws LineUnavailableException, IOException {
         float sampleRate = 44100;
-        int duration = 120;
+        int duration = 140;
         int samples = (int) (sampleRate * duration / 1000);
         byte[] buffer = new byte[samples * 2];
 
         for (int i = 0; i < samples; i++) {
             double t = i / sampleRate;
-            double envelope = Math.exp(-t * 40); // Quick decay
+            double envelope = Math.exp(-t * 28); // Slightly longer decay for audibility
 
             // Layered frequencies for wooden sound
             double sample = 0;
-            sample += Math.sin(2 * Math.PI * 180 * t) * 0.5; // Low thump
-            sample += Math.sin(2 * Math.PI * 320 * t) * 0.3; // Mid body
-            sample += Math.sin(2 * Math.PI * 520 * t) * 0.15; // High click
-            sample += (Math.random() - 0.5) * 0.1 * Math.exp(-t * 80); // Initial noise
+            sample += Math.sin(2 * Math.PI * 170 * t) * 0.7; // Low thump
+            sample += Math.sin(2 * Math.PI * 300 * t) * 0.45; // Mid body
+            sample += Math.sin(2 * Math.PI * 620 * t) * 0.22; // High click
+            sample += (Math.random() - 0.5) * 0.18 * Math.exp(-t * 65); // Initial noise
 
-            short s = (short) (sample * envelope * 32767 * 0.4);
+            short s = (short) (sample * envelope * 32767 * 0.75);
             buffer[i * 2] = (byte) (s & 0xFF);
             buffer[i * 2 + 1] = (byte) ((s >> 8) & 0xFF);
         }
@@ -517,13 +527,40 @@ public class SoundManager {
         return clip;
     }
 
+    private void applyVolume(Clip clip, float volume01) {
+        if (clip == null) return;
+        if (volume01 < 0f) volume01 = 0f;
+        if (volume01 > 1f) volume01 = 1f;
+        try {
+            if (clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
+                FloatControl gain = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
+                // Map 0..1 volume to decibels with usable taper.
+                float clamped = Math.max(0.0001f, volume01);
+                float dB = (float) (20.0 * Math.log10(clamped));
+                dB = Math.max(gain.getMinimum(), Math.min(gain.getMaximum(), dB));
+                gain.setValue(dB);
+            }
+        } catch (Exception ignored) {
+            // Best effort – some mixers/clips may not support gain controls reliably.
+        }
+    }
+
     public void playSound(String soundName) {
         if (isMuted) return;
 
         Clip clip = soundClips.get(soundName);
         if (clip != null) {
-            clip.setFramePosition(0);
-            clip.start();
+            applyVolume(clip, sfxVolume);
+            try {
+                if (clip.isRunning()) {
+                    clip.stop();
+                }
+                clip.flush();
+                clip.setFramePosition(0);
+                clip.start();
+            } catch (Exception e) {
+                System.err.println("Sound playback issue: " + e.getMessage());
+            }
         }
     }
 
@@ -535,14 +572,100 @@ public class SoundManager {
         Clip music = soundClips.get(musicType);
         if (music != null) {
             backgroundMusic = music;
+            applyVolume(backgroundMusic, musicVolume);
             backgroundMusic.setFramePosition(0);
             backgroundMusic.loop(Clip.LOOP_CONTINUOUSLY);
+        }
+    }
+
+    public float getMusicVolume() {
+        return musicVolume;
+    }
+
+    public float getSfxVolume() {
+        return sfxVolume;
+    }
+
+    public void setMusicVolume(float volume01) {
+        setMusicVolume(volume01, true);
+    }
+
+    public void setSfxVolume(float volume01) {
+        setSfxVolume(volume01, true);
+    }
+
+    public void previewMusicVolume(float volume01) {
+        setMusicVolume(volume01, false);
+    }
+
+    public void previewSfxVolume(float volume01) {
+        setSfxVolume(volume01, false);
+    }
+
+    private void setMusicVolume(float volume01, boolean persist) {
+        this.musicVolume = Math.max(0f, Math.min(1f, volume01));
+        if (persist) {
+            saveVolumesToConfig();
+        }
+        if (backgroundMusic != null && backgroundMusic.isRunning()) {
+            applyVolume(backgroundMusic, this.musicVolume);
+        }
+    }
+
+    private void setSfxVolume(float volume01, boolean persist) {
+        this.sfxVolume = Math.max(0f, Math.min(1f, volume01));
+        if (persist) {
+            saveVolumesToConfig();
+        }
+    }
+
+    public void playSfxPreview() {
+        playSound("click");
+    }
+
+    private String getConfigPath() {
+        return System.getProperty("user.home") + "\\nsolo.properties";
+    }
+
+    private void loadVolumesFromConfig() {
+        java.util.Properties props = new java.util.Properties();
+        try (java.io.InputStream in = new java.io.FileInputStream(getConfigPath())) {
+            props.load(in);
+            String mv = props.getProperty("musicVolume");
+            String sv = props.getProperty("sfxVolume");
+            if (mv != null) musicVolume = Float.parseFloat(mv);
+            if (sv != null) sfxVolume = Float.parseFloat(sv);
+        } catch (Exception ignored) {
+            // Config file might not exist yet; defaults above are fine.
+        }
+    }
+
+    private void saveVolumesToConfig() {
+        try {
+            java.util.Properties props = new java.util.Properties();
+            props.setProperty("musicVolume", String.valueOf(musicVolume));
+            props.setProperty("sfxVolume", String.valueOf(sfxVolume));
+            try (java.io.OutputStream out = new java.io.FileOutputStream(getConfigPath())) {
+                props.store(out, "Nsolo audio settings");
+            }
+        } catch (Exception ignored) {
+            // Best-effort; failing to persist settings shouldn't break gameplay.
         }
     }
 
     public void stopBackgroundMusic() {
         if (backgroundMusic != null && backgroundMusic.isRunning()) {
             backgroundMusic.stop();
+        }
+    }
+
+    public void stopAllSounds() {
+        stopBackgroundMusic();
+        for (Clip clip : soundClips.values()) {
+            if (clip != null && clip.isRunning()) {
+                clip.stop();
+                clip.setFramePosition(0);
+            }
         }
     }
 

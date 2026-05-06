@@ -4,15 +4,21 @@ public class NsoloAI {
     private NsoloGame game;
     private String difficulty;
     private Random random;
+    private boolean isTopPlayer;
 
     public NsoloAI(NsoloGame game, String difficulty) {
+        this(game, difficulty, true);
+    }
+
+    public NsoloAI(NsoloGame game, String difficulty, boolean isTopPlayer) {
         this.game = game;
         this.difficulty = difficulty;
         this.random = new Random();
+        this.isTopPlayer = isTopPlayer;
     }
 
     public void makeMove() {
-        if (game.isGameOver() || game.isAnimating()) return;
+        if (game.isGameOver() || game.isAnimating() || !game.isInputAllowed()) return;
 
         int[] move;
         if (difficulty.equals("EASY")) {
@@ -37,8 +43,9 @@ public class NsoloAI {
         int[][] board = game.getBoard();
         List<int[]> validMoves = new ArrayList<>();
 
-        // Player B's territory is rows 0 and 1
-        for (int row = 0; row < 2; row++) {
+        int startRow = isTopPlayer ? 0 : 2;
+        int endRow = isTopPlayer ? 2 : 4;
+        for (int row = startRow; row < endRow; row++) {
             for (int col = 0; col < 8; col++) {
                 if (board[row][col] > 0) {
                     validMoves.add(new int[]{row, col});
@@ -56,7 +63,9 @@ public class NsoloAI {
         int bestScore = Integer.MIN_VALUE;
 
         // Evaluate all possible moves
-        for (int row = 0; row < 2; row++) {
+        int startRow = isTopPlayer ? 0 : 2;
+        int endRow = isTopPlayer ? 2 : 4;
+        for (int row = startRow; row < endRow; row++) {
             for (int col = 0; col < 8; col++) {
                 if (board[row][col] > 0) {
                     int score = evaluateMove(row, col, board);
@@ -99,9 +108,11 @@ public class NsoloAI {
         }
 
         // Evaluate final position
-        // Bonus for landing in own territory (potential capture)
-        if (currentRow == 0 || currentRow == 1) {
-            int captureValue = simBoard[2][currentCol] + simBoard[3][currentCol];
+        boolean landedInOwnTerritory = isTopPlayer ? (currentRow == 0 || currentRow == 1) : (currentRow == 2 || currentRow == 3);
+        if (landedInOwnTerritory) {
+            int captureValue = isTopPlayer
+                    ? simBoard[2][currentCol] + simBoard[3][currentCol]
+                    : simBoard[0][currentCol] + simBoard[1][currentCol];
             score += captureValue * 10; // Heavy weight on captures
         }
 
@@ -120,15 +131,25 @@ public class NsoloAI {
     }
 
     private int[] getNextCell(int row, int col, int[][] board) {
-        int COLS = 8;
-        // Player B: anticlockwise in top rows
-        if (row == 0) {
-            if (col > 0) return new int[]{0, col - 1};
-            return new int[]{1, 0};
-        }
-        if (row == 1) {
-            if (col < COLS - 1) return new int[]{1, col + 1};
-            return new int[]{0, COLS - 1};
+        int cols = 8;
+        if (isTopPlayer) {
+            if (row == 0) {
+                if (col > 0) return new int[]{0, col - 1};
+                return new int[]{1, 0};
+            }
+            if (row == 1) {
+                if (col < cols - 1) return new int[]{1, col + 1};
+                return new int[]{0, cols - 1};
+            }
+        } else {
+            if (row == 3) {
+                if (col < cols - 1) return new int[]{3, col + 1};
+                return new int[]{2, cols - 1};
+            }
+            if (row == 2) {
+                if (col > 0) return new int[]{2, col - 1};
+                return new int[]{3, 0};
+            }
         }
         return null;
     }

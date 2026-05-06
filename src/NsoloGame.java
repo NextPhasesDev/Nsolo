@@ -5,19 +5,26 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import javax.swing.Timer;
-import java.awt.image.BufferedImage;
 import javax.imageio.ImageIO;
 import java.io.IOException;
+import java.net.URL;
 
 public class NsoloGame extends JFrame {
     private static final int ROWS = 4;
     private static final int COLS = 8;
     private static final int INITIAL_STONES = 2;
     private boolean isAnimating;
+    private boolean isResetting = false;
     private Timer animationTimer;
+    private Timer pickupTimer;
+    private Timer aiDelayTimer;
+    private final java.util.List<Timer> uiTimers = new java.util.ArrayList<>();
     private String gameMode; // "PVP", "AI_EASY", "AI_HARD"
     private NsoloAI ai;
     private JButton muteButton;
+    private JSlider musicSlider;
+    private JSlider sfxSlider;
+    private JCheckBox muteCheck;
     private SoundManager soundManager;
 
     private int[][] board;
@@ -26,12 +33,19 @@ public class NsoloGame extends JFrame {
     private int capturedB;
     private int moveCount;
     private boolean gameOver;
+    private GameState gameState = GameState.PLAYING;
+    private final java.util.List<TutorialStep> tutorialSteps = new java.util.ArrayList<>();
+    private int tutorialStepIndex = -1;
+    private boolean tutorialActive = false;
 
     StoneCell[][] cellPanels;
     private JLabel statusLabel;
     private JLabel scoreLabel;
     private JLabel movesLabel;
+    private JLabel turnIndicatorLabel;
     private JPanel boardPanel;
+    private JLabel tutorialBubbleLabel;
+    private boolean tutorialAwaitingMoveCompletion = false;
 
     public NsoloGame(String mode, JFrame parentMenu) {
         super("Nsolo - Traditional Zambian Board Game");
@@ -57,6 +71,7 @@ public class NsoloGame extends JFrame {
         initializeGame();
         setupGUI();
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setMinimumSize(new Dimension(1024, 720));
         setSize(1000, 700);
         setLocationRelativeTo(null);
         setVisible(true);
@@ -65,11 +80,19 @@ public class NsoloGame extends JFrame {
     private Image loadIcon() {
         try {
             // Try to load .ico file first
-            var iconStream = getClass().getResourceAsStream("/resources/icon.ico");
+            var iconStream = getClass().getResourceAsStream("/icon.ico");
             if (iconStream != null) {
                 return ImageIO.read(iconStream);
             }
             // Fallback to .png
+            iconStream = getClass().getResourceAsStream("/icon.png");
+            if (iconStream != null) {
+                return ImageIO.read(iconStream);
+            }
+            iconStream = getClass().getResourceAsStream("/resources/icon.ico");
+            if (iconStream != null) {
+                return ImageIO.read(iconStream);
+            }
             iconStream = getClass().getResourceAsStream("/resources/icon.png");
             if (iconStream != null) {
                 return ImageIO.read(iconStream);
@@ -93,50 +116,119 @@ public class NsoloGame extends JFrame {
         moveCount = 0;
         gameOver = false;
         isAnimating = false;
+        gameState = GameState.PLAYING;
+        tutorialActive = false;
+        tutorialStepIndex = -1;
     }
 
     private void setupGUI() {
+        boolean highContrast = MainMenu.isHighContrastEnabled();
+        float fontScale = MainMenu.getFontScale();
+
         setLayout(new BorderLayout(10, 10));
+        getContentPane().setBackground(Theme.BG);
 
         // Title Panel
         JPanel titlePanel = new JPanel();
         titlePanel.setLayout(new BorderLayout());
-        titlePanel.setBackground(new Color(139, 69, 19));
+        titlePanel.setBackground(highContrast ? Color.DARK_GRAY : new Color(139, 69, 19));
         titlePanel.setPreferredSize(new Dimension(1000, 120));
+        titlePanel.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
 
 // Title label in center
         JLabel titleLabel = new JLabel("NSOLO - Traditional Zambian Board Game", SwingConstants.CENTER);
-        titleLabel.setFont(new Font("Arial", Font.BOLD, 28));
-        titleLabel.setForeground(Color.WHITE);
+        titleLabel.setFont(scaledFont("Segoe UI", Font.BOLD, 30, fontScale));
+        titleLabel.setForeground(Theme.TEXT_PRIMARY);
         titlePanel.add(titleLabel, BorderLayout.CENTER);
 
-// Mute button in a separate panel on the left
-        JPanel mutePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        mutePanel.setBackground(new Color(139, 69, 19));
-        mutePanel.setOpaque(false);
+// Mute button and inline audio controls
+        JPanel audioPanel = new JPanel();
+        audioPanel.setLayout(new BoxLayout(audioPanel, BoxLayout.Y_AXIS));
+        audioPanel.setOpaque(false);
 
         muteButton = new JButton();
         muteButton.setPreferredSize(new Dimension(45, 45));
         muteButton.setFocusPainted(false);
-        muteButton.setBorderPainted(false);
-        muteButton.setContentAreaFilled(false);
+        muteButton.setBorderPainted(true);
+        muteButton.setBackground(new Color(30, 45, 59));
+        muteButton.setBorder(BorderFactory.createLineBorder(new Color(112, 151, 187), 1, true));
         muteButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        muteButton.setToolTipText("Toggle Sound");
+        muteButton.setToolTipText("Mute / unmute");
         updateMuteIcon();
 
         muteButton.addActionListener(e -> {
-            soundManager.toggleMute();
+            soundManager.playSound("click");
+            soundManager.setMuted(!soundManager.isMuted());
+            if (muteCheck != null) {
+                muteCheck.setSelected(soundManager.isMuted());
+            }
             updateMuteIcon();
         });
 
-        mutePanel.add(muteButton);
-        titlePanel.add(mutePanel, BorderLayout.WEST);
+        muteCheck = new JCheckBox("Mute");
+        muteCheck.setOpaque(false);
+        muteCheck.setForeground(Theme.TEXT_MUTED);
+        muteCheck.setSelected(soundManager.isMuted());
+        muteCheck.addActionListener(e -> {
+            soundManager.setMuted(muteCheck.isSelected());
+            updateMuteIcon();
+        });
+
+        musicSlider = new JSlider(0, 100, (int) (soundManager.getMusicVolume() * 100));
+        musicSlider.setOpaque(false);
+        musicSlider.setToolTipText("Music");
+        musicSlider.setPreferredSize(new Dimension(120, 22));
+        musicSlider.addChangeListener(e -> {
+            float v = musicSlider.getValue() / 100f;
+            soundManager.previewMusicVolume(v);
+            if (!musicSlider.getValueIsAdjusting()) {
+                soundManager.setMusicVolume(v);
+            }
+            updateMuteIcon();
+        });
+
+        sfxSlider = new JSlider(0, 100, (int) (soundManager.getSfxVolume() * 100));
+        sfxSlider.setOpaque(false);
+        sfxSlider.setToolTipText("SFX");
+        sfxSlider.setPreferredSize(new Dimension(120, 22));
+        sfxSlider.addChangeListener(e -> {
+            float v = sfxSlider.getValue() / 100f;
+            soundManager.previewSfxVolume(v);
+            if (!sfxSlider.getValueIsAdjusting()) {
+                soundManager.setSfxVolume(v);
+                soundManager.playSfxPreview();
+            }
+        });
+
+        JPanel row1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        row1.setOpaque(false);
+        row1.add(muteButton);
+        row1.add(muteCheck);
+
+        JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        row2.setOpaque(false);
+        JLabel musicLabel = new JLabel("Music");
+        musicLabel.setForeground(Theme.TEXT_MUTED);
+        row2.add(musicLabel);
+        row2.add(musicSlider);
+
+        JPanel row3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        row3.setOpaque(false);
+        JLabel sfxLabel = new JLabel("SFX");
+        sfxLabel.setForeground(Theme.TEXT_MUTED);
+        row3.add(sfxLabel);
+        row3.add(sfxSlider);
+
+        audioPanel.add(row1);
+        audioPanel.add(row2);
+        audioPanel.add(row3);
+        titlePanel.add(audioPanel, BorderLayout.WEST);
 
         add(titlePanel, BorderLayout.NORTH);
 
         // Board Panel
         boardPanel = new JPanel(new GridLayout(ROWS, COLS, 5, 5));
-        boardPanel.setBackground(new Color(101, 67, 33));
+        boardPanel.setBackground(highContrast ? Color.BLACK : new Color(101, 67, 33));
         boardPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         cellPanels = new StoneCell[ROWS][COLS];
 
@@ -148,9 +240,9 @@ public class NsoloGame extends JFrame {
                 // Color coding for territories
                 Color territoryColor;
                 if (i == 0 || i == 1) {
-                    territoryColor = new Color(173, 216, 230); // Light blue for Player B
+                        territoryColor = highContrast ? new Color(0, 102, 204) : Theme.PLAYER_B_TILE;
                 } else {
-                    territoryColor = new Color(255, 182, 193); // Light pink for Player A
+                        territoryColor = highContrast ? new Color(204, 0, 102) : Theme.PLAYER_A_TILE;
                 }
 
                 // Stone visualization panel (now clickable)
@@ -164,11 +256,15 @@ public class NsoloGame extends JFrame {
                     @Override
                     public void mouseEntered(MouseEvent e) {
                         stoneCell.setCursor(new Cursor(Cursor.HAND_CURSOR));
+                        if (!isAnimating && !isResetting && isInputAllowed() && !gameOver && board[row][col] > 0 && isPlayerTerritory(row, currentPlayer)) {
+                            stoneCell.setHovered(true);
+                        }
                     }
 
                     @Override
                     public void mouseExited(MouseEvent e) {
                         stoneCell.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+                        stoneCell.setHovered(false);
                     }
                 });
 
@@ -180,35 +276,54 @@ public class NsoloGame extends JFrame {
 
         // Info Panel
         JPanel infoPanel = new JPanel(new GridLayout(5, 1, 5, 5));
-        infoPanel.setBackground(new Color(245, 222, 179));
+        infoPanel.setBackground(highContrast ? new Color(40, 40, 40) : new Color(245, 222, 179));
         infoPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
+        turnIndicatorLabel = new JLabel();
+        turnIndicatorLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        turnIndicatorLabel.setFont(scaledFont("Segoe UI", Font.BOLD, 17, fontScale));
+        updateTurnIndicator();
+
         statusLabel = new JLabel("Player A's Turn", SwingConstants.CENTER);
-        statusLabel.setFont(new Font("Arial", Font.BOLD, 18));
-        statusLabel.setForeground(new Color(139, 0, 0));
+        statusLabel.setFont(scaledFont("Segoe UI", Font.BOLD, 20, fontScale));
+        statusLabel.setForeground(Theme.TEXT_PRIMARY);
+
+        tutorialBubbleLabel = new JLabel(" ");
+        tutorialBubbleLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        tutorialBubbleLabel.setOpaque(true);
+        tutorialBubbleLabel.setBackground(new Color(255, 243, 210));
+        tutorialBubbleLabel.setForeground(new Color(43, 37, 25));
+        tutorialBubbleLabel.setFont(scaledFont("Segoe UI", Font.BOLD, 15, fontScale));
+        tutorialBubbleLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(219, 180, 90), 2, true),
+                BorderFactory.createEmptyBorder(7, 10, 7, 10)
+        ));
+        tutorialBubbleLabel.setVisible(false);
 
         scoreLabel = new JLabel("Score - A: 0 | B: 0", SwingConstants.CENTER);
-        scoreLabel.setFont(new Font("Arial", Font.BOLD, 16));
+        scoreLabel.setFont(scaledFont("Segoe UI", Font.BOLD, 16, fontScale));
+        scoreLabel.setForeground(Theme.TEXT_PRIMARY);
 
         movesLabel = new JLabel("Moves: 0", SwingConstants.CENTER);
-        movesLabel.setFont(new Font("Arial", Font.PLAIN, 14));
+        movesLabel.setFont(scaledFont("Segoe UI", Font.PLAIN, 14, fontScale));
+        movesLabel.setForeground(Theme.TEXT_MUTED);
 
         JButton resetBtn = new JButton("Reset Game");
-        resetBtn.setFont(new Font("Arial", Font.BOLD, 14));
-        resetBtn.setBackground(new Color(139, 69, 19));
-        resetBtn.setForeground(Color.WHITE);
+        styleActionButton(resetBtn, highContrast ? new Color(90, 90, 90) : new Color(124, 72, 28), fontScale);
         resetBtn.addActionListener(e -> resetGame());
 
         JButton backBtn = new JButton("Back to Menu");
-        backBtn.setFont(new Font("Arial", Font.BOLD, 14));
-        backBtn.setBackground(new Color(184, 134, 11));
-        backBtn.setForeground(Color.WHITE);
+        styleActionButton(backBtn, highContrast ? new Color(110, 110, 110) : new Color(160, 119, 36), fontScale);
         backBtn.addActionListener(e -> {
-            soundManager.playSound("click");
-            soundManager.stopBackgroundMusic();
-            dispose();
+            // Silent quit: stop sowing/AI and stop all audio immediately.
+            stopAllTimers();
+            soundManager.stopAllSounds();
+            super.dispose();
             new MainMenu();
         });
+        JButton tutorialBtn = new JButton("Tutorial");
+        styleActionButton(tutorialBtn, highContrast ? new Color(100, 100, 100) : new Color(86, 124, 50), fontScale);
+        tutorialBtn.addActionListener(e -> startTutorial());
 
         infoPanel.add(statusLabel);
         infoPanel.add(scoreLabel);
@@ -221,8 +336,9 @@ public class NsoloGame extends JFrame {
         // Rules Panel
         JPanel rulesPanel = new JPanel();
         rulesPanel.setLayout(new BoxLayout(rulesPanel, BoxLayout.Y_AXIS));
-        rulesPanel.setBackground(new Color(255, 248, 220));
-        rulesPanel.setBorder(BorderFactory.createTitledBorder("Game Rules"));
+        rulesPanel.setBackground(highContrast ? new Color(30, 30, 30) : new Color(255, 248, 220));
+        rulesPanel.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(new Color(89, 123, 155)),
+                "Quick Guide"));
 
         String[] rules = {
                 "• Player A (Red): Bottom 2 rows",
@@ -235,71 +351,89 @@ public class NsoloGame extends JFrame {
 
         for (String rule : rules) {
             JLabel ruleLabel = new JLabel(rule);
-            ruleLabel.setFont(new Font("Arial", Font.PLAIN, 12));
+            ruleLabel.setFont(scaledFont("Segoe UI", Font.PLAIN, 15, fontScale));
+            ruleLabel.setForeground(Theme.TEXT_MUTED);
             rulesPanel.add(ruleLabel);
         }
 
         add(rulesPanel, BorderLayout.EAST);
     }
 
-    private void updateMuteIcon() {
-        BufferedImage icon = new BufferedImage(45, 45, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g2d = icon.createGraphics();
-        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+    private void styleActionButton(JButton button, Color base, float fontScale) {
+        button.setFont(scaledFont("Segoe UI", Font.BOLD, 14, fontScale));
+        button.setBackground(base);
+        button.setForeground(Color.WHITE);
+        button.setFocusPainted(false);
+        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        button.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(0, 0, 0, 70), 1, true),
+                BorderFactory.createEmptyBorder(7, 10, 7, 10)
+        ));
+        button.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                button.setBackground(base.brighter());
+            }
 
-        if (soundManager.isMuted()) {
-            // RED MUTED ICON
-            g2d.setColor(new Color(200, 50, 50));
-
-            // Speaker body (larger, clearer trapezoid)
-            int[] speakerX = {8, 8, 18, 18};
-            int[] speakerY = {18, 27, 30, 15};
-            g2d.fillPolygon(speakerX, speakerY, 4);
-
-            // Speaker cone (triangle pointing right)
-            int[] coneX = {18, 18, 28};
-            int[] coneY = {15, 30, 27};
-            g2d.fillPolygon(coneX, coneY, 3);
-            g2d.fillPolygon(new int[]{18, 18, 28}, new int[]{15, 30, 18}, 3);
-
-            // Bold X
-            g2d.setStroke(new BasicStroke(4, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g2d.drawLine(30, 12, 40, 33);
-            g2d.drawLine(40, 12, 30, 33);
-
-        } else {
-            // WHITE UNMUTED ICON
-            g2d.setColor(Color.WHITE);
-
-            // Speaker body (larger, clearer trapezoid)
-            int[] speakerX = {8, 8, 18, 18};
-            int[] speakerY = {18, 27, 30, 15};
-            g2d.fillPolygon(speakerX, speakerY, 4);
-
-            // Speaker cone (triangle pointing right)
-            int[] coneX = {18, 18, 28};
-            int[] coneY = {15, 30, 27};
-            g2d.fillPolygon(coneX, coneY, 3);
-            g2d.fillPolygon(new int[]{18, 18, 28}, new int[]{15, 30, 18}, 3);
-
-            // Sound waves (3 curved arcs)
-            g2d.setStroke(new BasicStroke(3, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g2d.drawArc(26, 16, 8, 13, -40, 80);
-            g2d.drawArc(30, 13, 12, 19, -40, 80);
-            g2d.drawArc(34, 10, 16, 25, -40, 80);
-        }
-
-        g2d.dispose();
-        muteButton.setIcon(new ImageIcon(icon));
+            @Override
+            public void mouseExited(MouseEvent e) {
+                button.setBackground(base);
+            }
+        });
     }
 
+    private Font scaledFont(String family, int style, int size, float scale) {
+        int finalSize = (int) (size * scale);
+        if (finalSize < 10) finalSize = 10;
+        return new Font(family, style, finalSize);
+    }
+
+    private void updateMuteIcon() {
+        String iconPath;
+        if (soundManager.isMuted() || soundManager.getMusicVolume() <= 0.01f) {
+            iconPath = "/volume-x.png";
+        } else if (soundManager.getMusicVolume() < 0.55f) {
+            iconPath = "/volume-1.png";
+        } else {
+            iconPath = "/volume-2.png";
+        }
+
+        ImageIcon icon = loadUiIcon(iconPath);
+        if (icon == null) {
+            icon = loadUiIcon("/resources" + iconPath);
+        }
+
+        if (icon != null) {
+            Image scaled = icon.getImage().getScaledInstance(24, 24, Image.SCALE_SMOOTH);
+            muteButton.setIcon(new ImageIcon(scaled));
+            muteButton.setForeground(Color.WHITE);
+        }
+    }
+
+    private ImageIcon loadUiIcon(String path) {
+        URL url = getClass().getResource(path);
+        return url == null ? null : new ImageIcon(url);
+    }
+
+    
+
     private void handleCellClick(int row, int col) {
+        if (isAnimating() || isResetting) return;
+
+        if (tutorialActive) {
+            handleTutorialClick(row, col);
+            return;
+        }
+        processMoveSelection(row, col);
+    }
+
+    private void processMoveSelection(int row, int col) {
         if (gameOver) {
             JOptionPane.showMessageDialog(this, "Game is over! Please reset to play again.");
             return;
         }
 
-        if (isAnimating) {
+        if (!isInputAllowed() || isAnimating) {
             statusLabel.setText("Please wait for animation to complete...");
             return;
         }
@@ -320,8 +454,45 @@ public class NsoloGame extends JFrame {
 
         // Perform the move with animation
         isAnimating = true;
+        gameState = GameState.ANIMATING;
         disableAllCells();
         dropStonesAnimated(row, col);
+    }
+
+    private void stopAllTimers() {
+        if (animationTimer != null) {
+            animationTimer.stop();
+            animationTimer = null;
+        }
+        if (pickupTimer != null) {
+            pickupTimer.stop();
+            pickupTimer = null;
+        }
+        if (aiDelayTimer != null) {
+            aiDelayTimer.stop();
+            aiDelayTimer = null;
+        }
+        for (Timer t : uiTimers) {
+            if (t != null) t.stop();
+        }
+        uiTimers.clear();
+        clearCellVisualStates();
+        isAnimating = false;
+        if (!gameOver) {
+            gameState = GameState.PLAYING;
+        }
+    }
+
+    private void clearCellVisualStates() {
+        if (cellPanels == null) return;
+        for (int i = 0; i < ROWS; i++) {
+            for (int j = 0; j < COLS; j++) {
+                if (cellPanels[i][j] != null) {
+                    cellPanels[i][j].setHovered(false);
+                    cellPanels[i][j].setHighlighted(false);
+                }
+            }
+        }
     }
 
     private boolean isPlayerTerritory(int row, char player) {
@@ -360,6 +531,7 @@ public class NsoloGame extends JFrame {
                     // Highlight current cell being updated
                     highlightCell(currentRow[0], currentCol[0]);
                     updateBoard();
+                    soundManager.playSound("drop");
 
                     // If last stone and cell has more than 1, pick up all stones
                     if (stonesInHand[0] == 0 && board[currentRow[0]][currentCol[0]] > 1) {
@@ -369,7 +541,7 @@ public class NsoloGame extends JFrame {
                         // Brief pause to show the pickup
                         animationTimer.stop();
                         soundManager.playSound("pickup");
-                        Timer pickupTimer = new Timer(300, new ActionListener() {
+                        pickupTimer = new Timer(300, new ActionListener() {
                             @Override
                             public void actionPerformed(ActionEvent evt) {
                                 updateBoard();
@@ -399,15 +571,24 @@ public class NsoloGame extends JFrame {
         moveCount++;
         currentPlayer = (currentPlayer == 'A') ? 'B' : 'A';
         statusLabel.setText("Player " + currentPlayer + "'s Turn");
+        updateTurnIndicator();
         movesLabel.setText("Moves: " + moveCount);
         soundManager.playSound("complete");
 
         isAnimating = false;
+        gameState = GameState.PLAYING;
         enableAllCells();
         checkGameOver();
+        if (tutorialAwaitingMoveCompletion) {
+            tutorialAwaitingMoveCompletion = false;
+            tutorialActive = true;
+            gameState = GameState.PAUSED;
+            showTutorialStep();
+            return;
+        }
         // Trigger AI move if it's AI's turn
         if (!gameOver && gameMode != null && gameMode.startsWith("AI") && currentPlayer == 'B') {
-            Timer aiDelayTimer = new Timer(1000, new ActionListener() {
+            aiDelayTimer = new Timer(1000, new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     if (ai != null && !isAnimating) {
@@ -420,18 +601,16 @@ public class NsoloGame extends JFrame {
         }
     }
     private void highlightCell(int row, int col) {
-        // Temporarily highlight the cell being updated
-        Color highlight = new Color(255, 255, 0, 100); // Yellow highlight
-        Color original = cellPanels[row][col].getBackground();
-
-        cellPanels[row][col].setBorder(BorderFactory.createLineBorder(Color.YELLOW, 4));
+        // Temporarily highlight active sowing cell
+        cellPanels[row][col].setHighlighted(true);
 
         Timer highlightTimer = new Timer(400, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                cellPanels[row][col].setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 2));
+                cellPanels[row][col].setHighlighted(false);
             }
         });
+        uiTimers.add(highlightTimer);
         highlightTimer.setRepeats(false);
         highlightTimer.start();
     }
@@ -462,15 +641,16 @@ public class NsoloGame extends JFrame {
                         cellPanels[row1][col].setTerritoryColor(new Color(255, 0, 0, 150));
                         cellPanels[row2][col].setTerritoryColor(new Color(255, 0, 0, 150));
                     } else {
-                        cellPanels[row1][col].setTerritoryColor(Color.LIGHT_GRAY);
-                        cellPanels[row2][col].setTerritoryColor(Color.LIGHT_GRAY);
+                        updateBoard();
                     }
                     flashCount[0]++;
                 } else {
+                    updateBoard();
                     ((Timer)e.getSource()).stop();
                 }
             }
         });
+        uiTimers.add(flashTimer);
         flashTimer.start();
     }
 
@@ -545,19 +725,33 @@ public class NsoloGame extends JFrame {
         for (int i = 0; i < ROWS; i++) {
             for (int j = 0; j < COLS; j++) {
                 cellPanels[i][j].setStoneCount(board[i][j]);
+                cellPanels[i][j].setHovered(false);
 
-                // Update background based on stones
+                // Update background based on stones and high contrast setting
+                boolean highContrast = MainMenu.isHighContrastEnabled();
                 if (board[i][j] == 0) {
-                    cellPanels[i][j].setTerritoryColor(Color.LIGHT_GRAY);
+                    cellPanels[i][j].setTerritoryColor(highContrast ? new Color(60, 60, 60) : new Color(66, 78, 91));
                 } else {
                     if (i == 0 || i == 1) {
-                        cellPanels[i][j].setTerritoryColor(new Color(173, 216, 230));
+                        cellPanels[i][j].setTerritoryColor(
+                                highContrast ? new Color(0, 102, 204) : Theme.PLAYER_B_TILE);
                     } else {
-                        cellPanels[i][j].setTerritoryColor(new Color(255, 182, 193));
+                        cellPanels[i][j].setTerritoryColor(
+                                highContrast ? new Color(204, 0, 102) : Theme.PLAYER_A_TILE);
                     }
                 }
             }
         }
+        updateMuteIcon();
+    }
+
+    private void updateTurnIndicator() {
+        if (turnIndicatorLabel == null) {
+            return;
+        }
+        Color indicatorColor = currentPlayer == 'A' ? Theme.PLAYER_A : Theme.PLAYER_B;
+        turnIndicatorLabel.setText("TURN: " + (currentPlayer == 'A' ? "Player A" : "Player B"));
+        turnIndicatorLabel.setForeground(indicatorColor);
     }
 
     private void checkMusicIntensity() {
@@ -589,6 +783,7 @@ public class NsoloGame extends JFrame {
 
         if (!playerAHasStones || !playerBHasStones) {
             gameOver = true;
+            gameState = GameState.GAME_OVER;
             soundManager.stopBackgroundMusic();
 
             String winner;
@@ -624,13 +819,118 @@ public class NsoloGame extends JFrame {
         }
     }
 
-    private void resetGame() {
-        initializeGame();
-        updateBoard();
-        statusLabel.setText("Player A's Turn");
-        scoreLabel.setText("Score - A: 0 | B: 0");
-        movesLabel.setText("Moves: 0");
-        soundManager.playSound("click");
+    public void resetGame() {
+        if (isResetting) return;
+        isResetting = true;
+        gameState = GameState.PAUSED;
+
+        stopAllAnimations();
+        disableAllInput();
+        soundManager.stopAllSounds();
+
+        SwingUtilities.invokeLater(() -> {
+            initializeGame();
+            clearCellVisualStates();
+            updateBoard();
+            statusLabel.setText("Player A's Turn");
+            updateTurnIndicator();
+            scoreLabel.setText("Score - A: 0 | B: 0");
+            movesLabel.setText("Moves: 0");
+            enableAllInput();
+            isResetting = false;
+        });
+    }
+
+    private void stopAllAnimations() {
+        stopAllTimers();
+    }
+
+    private void disableAllInput() {
+        disableAllCells();
+    }
+
+    private void enableAllInput() {
+        if (!gameOver) {
+            gameState = GameState.PLAYING;
+        }
+        enableAllCells();
+    }
+
+    public boolean isInputAllowed() {
+        return gameState == GameState.PLAYING;
+    }
+
+    private void startTutorial() {
+        if (isAnimating() || isResetting || gameOver) {
+            return;
+        }
+        tutorialSteps.clear();
+        tutorialSteps.add(new TutorialStep("Tap this pit to start sowing stones.", 3, 0));
+        tutorialSteps.add(new TutorialStep("Great move. Now use this pit.", 2, 1));
+        tutorialSteps.add(new TutorialStep("Last step: tap here to finish.", 3, 2));
+        tutorialActive = true;
+        tutorialStepIndex = 0;
+        gameState = GameState.PAUSED;
+        showTutorialStep();
+    }
+
+    private void showTutorialStep() {
+        clearCellVisualStates();
+        if (!tutorialActive || tutorialStepIndex < 0 || tutorialStepIndex >= tutorialSteps.size()) {
+            tutorialActive = false;
+            tutorialStepIndex = -1;
+            gameState = GameState.PLAYING;
+            tutorialBubbleLabel.setVisible(false);
+            statusLabel.setText("Tutorial complete. Continue playing!");
+            return;
+        }
+        TutorialStep step = tutorialSteps.get(tutorialStepIndex);
+        cellPanels[step.row][step.col].setHighlighted(true);
+        statusLabel.setText("Tutorial mode: follow the highlighted pit.");
+        tutorialBubbleLabel.setText(step.message + "  (bouncing hint)");
+        tutorialBubbleLabel.setVisible(true);
+        animateTutorialBubble();
+    }
+
+    private void handleTutorialClick(int row, int col) {
+        if (!tutorialActive || tutorialStepIndex < 0 || tutorialStepIndex >= tutorialSteps.size()) {
+            return;
+        }
+        TutorialStep step = tutorialSteps.get(tutorialStepIndex);
+        if (step.row != row || step.col != col) {
+            statusLabel.setText("Follow the highlighted pit for the tutorial.");
+            return;
+        }
+        tutorialStepIndex++;
+        tutorialActive = false;
+        gameState = GameState.PLAYING;
+        tutorialAwaitingMoveCompletion = true;
+        processMoveSelection(row, col);
+    }
+
+    private void animateTutorialBubble() {
+        final int[] ticks = {0};
+        Timer bounce = new Timer(110, e -> {
+            if (!tutorialActive || !tutorialBubbleLabel.isVisible()) {
+                ((Timer) e.getSource()).stop();
+                tutorialBubbleLabel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(219, 180, 90), 2, true),
+                        BorderFactory.createEmptyBorder(7, 10, 7, 10)
+                ));
+                return;
+            }
+            boolean up = (ticks[0] % 2 == 0);
+            tutorialBubbleLabel.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(new Color(219, 180, 90), 2, true),
+                    BorderFactory.createEmptyBorder(up ? 5 : 9, 10, up ? 9 : 5, 10)
+            ));
+            ticks[0]++;
+            if (ticks[0] > 8) {
+                ((Timer) e.getSource()).stop();
+            }
+        });
+        uiTimers.add(bounce);
+        bounce.start();
     }
 
     // Getter methods for AI
@@ -652,6 +952,20 @@ public class NsoloGame extends JFrame {
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> new MainMenu());
+    }
+
+    @Override
+    public void dispose() {
+        // Safety: if window is closed during an animation, prevent further board mutations and sounds.
+        try {
+            stopAllTimers();
+            if (soundManager != null) {
+                soundManager.stopAllSounds();
+            }
+        } catch (Exception ignored) {
+            // Best-effort cleanup only.
+        }
+        super.dispose();
     }
 }
 
