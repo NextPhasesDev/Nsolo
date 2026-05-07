@@ -75,25 +75,19 @@ public class MainMenu extends JFrame {
         LANGUAGE_CODE = code;
     }
 
-    private Font scaledFont(String family, int style, int size) {
-        int finalSize = (int) (size * FONT_SCALE);
-        if (finalSize < 10) finalSize = 10;
-        return new Font(family, style, finalSize);
-    }
-
-    private Font uiFont(int style, int size) {
-        return scaledFont("Segoe UI", style, size);
-    }
+    // Fonts are provided by UITheme.getFont(FONT_SCALE, style, size)
 
     private void setupGUI() {
-        // Root layout: split-screen using BorderLayout
-        setLayout(new BorderLayout(12, 12));
-        getContentPane().setBackground(Theme.BG);
+        // Root container with consistent padding to avoid cramped edges
+        JPanel root = new JPanel(new BorderLayout(16, 16));
+        root.setBorder(BorderFactory.createEmptyBorder(18, 18, 18, 18));
+        root.setBackground(UITheme.BACKGROUND);
+        setContentPane(root);
 
         // LEFT: Large title block (vertically centered)
         JPanel leftPanel = new JPanel(new BorderLayout());
-        leftPanel.setBackground(Theme.SURFACE.darker());
-        leftPanel.setBorder(BorderFactory.createEmptyBorder(40, 36, 40, 36));
+        leftPanel.setBackground(UITheme.PANEL.darker());
+        leftPanel.setBorder(BorderFactory.createEmptyBorder(56, 48, 56, 48));
 
         JPanel leftCenter = new JPanel();
         leftCenter.setLayout(new BoxLayout(leftCenter, BoxLayout.Y_AXIS));
@@ -101,25 +95,26 @@ public class MainMenu extends JFrame {
         leftCenter.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JLabel titleLabel = new JLabel(LanguageManager.get("menu.title"));
-        titleLabel.setFont(uiFont(Font.BOLD, 48));
-        titleLabel.setForeground(Theme.TEXT_PRIMARY);
+        titleLabel.setFont(UITheme.getFont(FONT_SCALE, Font.BOLD, 48));
+        titleLabel.setForeground(UITheme.TEXT_MAIN);
         titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JLabel subtitleLabel = new JLabel(LanguageManager.get("menu.subtitle"));
-        subtitleLabel.setFont(uiFont(Font.PLAIN, 18));
-        subtitleLabel.setForeground(Theme.TEXT_MUTED);
+        // Medium italic subtitle for hierarchy
+        subtitleLabel.setFont(UITheme.getFont(FONT_SCALE, Font.ITALIC, 18));
+        subtitleLabel.setForeground(UITheme.TEXT_SECONDARY);
         subtitleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JLabel versionLabel = new JLabel("v" + VERSION);
-        versionLabel.setFont(uiFont(Font.PLAIN, 12));
-        versionLabel.setForeground(Theme.TEXT_MUTED);
+        versionLabel.setFont(UITheme.getFont(FONT_SCALE, Font.PLAIN, 12));
+        versionLabel.setForeground(UITheme.TEXT_SECONDARY);
         versionLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         leftCenter.add(Box.createVerticalGlue());
         leftCenter.add(titleLabel);
-        leftCenter.add(Box.createVerticalStrut(12));
+        leftCenter.add(Box.createVerticalStrut(20));
         leftCenter.add(subtitleLabel);
-        leftCenter.add(Box.createVerticalStrut(8));
+        leftCenter.add(Box.createVerticalStrut(12));
         leftCenter.add(versionLabel);
         leftCenter.add(Box.createVerticalGlue());
 
@@ -128,14 +123,14 @@ public class MainMenu extends JFrame {
 
         // RIGHT: Main menu buttons (centered, evenly spaced)
         JPanel rightPanel = new JPanel(new GridBagLayout());
-        rightPanel.setBackground(Theme.PANEL.brighter());
-        rightPanel.setBorder(BorderFactory.createEmptyBorder(40, 60, 40, 60));
+        rightPanel.setBackground(UITheme.PANEL.brighter());
+        rightPanel.setBorder(BorderFactory.createEmptyBorder(50, 60, 50, 60));
 
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
-        gbc.insets = new Insets(8, 0, 8, 0);
+        gbc.insets = new Insets(10, 0, 10, 0);
 
         // top spacer (pushes buttons to vertical center)
         gbc.gridy = 0;
@@ -147,6 +142,7 @@ public class MainMenu extends JFrame {
         buttonsStack.setLayout(new BoxLayout(buttonsStack, BoxLayout.Y_AXIS));
         buttonsStack.setOpaque(false);
         buttonsStack.setAlignmentX(Component.CENTER_ALIGNMENT);
+        buttonsStack.setBorder(BorderFactory.createEmptyBorder(10, 6, 10, 6));
         // Player vs Player Button
         JButton pvpButton = createMenuButton(LanguageManager.get("menu.pvp"));
         pvpButton.addActionListener(e -> {
@@ -190,22 +186,22 @@ public class MainMenu extends JFrame {
 
         // Exit Button
         JButton exitButton = createMenuButton(LanguageManager.get("menu.exit"));
-        exitButton.setBackground(new Color(139, 69, 19));
+        exitButton.setBackground(UITheme.ACCENT);
         exitButton.addActionListener(e -> {
             soundManager.playSound("click");
             System.exit(0);
         });
 
         buttonsStack.add(pvpButton);
-        buttonsStack.add(Box.createVerticalStrut(12));
+        buttonsStack.add(Box.createVerticalStrut(18));
         buttonsStack.add(aiEasyButton);
-        buttonsStack.add(Box.createVerticalStrut(12));
+        buttonsStack.add(Box.createVerticalStrut(18));
         buttonsStack.add(aiHardButton);
-        buttonsStack.add(Box.createVerticalStrut(12));
+        buttonsStack.add(Box.createVerticalStrut(18));
         buttonsStack.add(rulesButton);
-        buttonsStack.add(Box.createVerticalStrut(12));
+        buttonsStack.add(Box.createVerticalStrut(18));
         buttonsStack.add(settingsButton);
-        buttonsStack.add(Box.createVerticalStrut(12));
+        buttonsStack.add(Box.createVerticalStrut(18));
         buttonsStack.add(exitButton);
 
         // Add the stack to the GridBag center area
@@ -218,37 +214,34 @@ public class MainMenu extends JFrame {
         gbc.weighty = 1.0;
         rightPanel.add(Box.createVerticalGlue(), gbc);
 
-        // Wrap rightPanel in a scrollpane only if needed
+        // Wrap rightPanel in a scrollpane only if needed (keeps responsiveness on small screens)
         JScrollPane rightScroll = new JScrollPane(rightPanel);
         rightScroll.setBorder(BorderFactory.createEmptyBorder());
-        rightScroll.getVerticalScrollBar().setUnitIncrement(16);
+        // Slightly faster unit increment and larger block increment for smoother scroll feel
+        rightScroll.getVerticalScrollBar().setUnitIncrement(20);
+        rightScroll.getVerticalScrollBar().setBlockIncrement(80);
+        // Use BLIT scroll mode for smoother repainting on scroll
+        rightScroll.getViewport().setScrollMode(JViewport.BLIT_SCROLL_MODE);
         rightScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         add(rightScroll, BorderLayout.CENTER);
     }
 
     private JButton createMenuButton(String text) {
-        JButton button = new JButton(text);
-        button.setFont(uiFont(Font.BOLD, 18));
+        // Use StyledButton (custom painted) but keep Theme colors and sizing
+        StyledButton button = new StyledButton(text, FONT_SCALE);
+        // Buttons: bold readable
+        button.setFont(UITheme.getFont(FONT_SCALE, Font.BOLD, 16));
         button.setAlignmentX(Component.CENTER_ALIGNMENT);
-        button.setMaximumSize(new Dimension(300, 50));
-        button.setFocusPainted(false);
-        button.setBackground(Theme.PRIMARY);
-        button.setForeground(Theme.TEXT_ON_PRIMARY);
-        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        // Keep consistent height but allow buttons to shrink horizontally on small screens
+        button.setPreferredSize(new Dimension(380, 72));
+        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 72));
+
+        // Keep the outline used previously
         button.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(0, 0, 0, 70), 2, true),
+                BorderFactory.createLineBorder(UITheme.BORDER, 2, true),
                 BorderFactory.createEmptyBorder(10, 14, 10, 14)
         ));
 
-        // Hover effect
-        button.addMouseListener(new java.awt.event.MouseAdapter() {
-            public void mouseEntered(java.awt.event.MouseEvent evt) {
-                button.setBackground(Theme.PRIMARY_HOVER);
-            }
-            public void mouseExited(java.awt.event.MouseEvent evt) {
-                button.setBackground(Theme.PRIMARY);
-            }
-        });
 
         return button;
     }
@@ -334,7 +327,7 @@ public class MainMenu extends JFrame {
         mainPanel.add(volumesPanel);
 
         JLabel noteLabel = new JLabel(LanguageManager.get("settings.note"));
-        noteLabel.setFont(scaledFont("Arial", Font.PLAIN, 11));
+        noteLabel.setFont(UITheme.getFont(FONT_SCALE, Font.PLAIN, 11));
 
         JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton okButton = new JButton(LanguageManager.get("common.ok"));
@@ -379,8 +372,8 @@ public class MainMenu extends JFrame {
     private void showRules() {
         JTextArea textArea = new JTextArea(LanguageManager.get("rules.full"));
         textArea.setEditable(false);
-        textArea.setFont(scaledFont("Arial", Font.PLAIN, 14));
-        textArea.setBackground(new Color(255, 248, 220));
+        textArea.setFont(UITheme.getFont(FONT_SCALE, Font.PLAIN, 14));
+        textArea.setBackground(UITheme.TEXT_SECONDARY);
 
         JScrollPane scrollPane = new JScrollPane(textArea);
         scrollPane.setPreferredSize(new Dimension(450, 400));
