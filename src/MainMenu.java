@@ -1,5 +1,6 @@
 import javax.swing.*;
 import java.awt.*;
+import java.awt.geom.Point2D;
 import javax.imageio.ImageIO;
 import java.io.IOException;
 
@@ -12,13 +13,28 @@ public class MainMenu extends JFrame {
     private static float FONT_SCALE = 1.0f; // 1.0 = normal, 1.2 = large
     private static String LANGUAGE_CODE = "en"; // "en", "bem", "ny", ...
 
+    private JPanel rootPanel;
+    private JPanel leftPanel;
+    private JPanel rightPanel;
+    private JPanel buttonsStack;
+    private JLabel titleLabel;
+    private JLabel subtitleLabel;
+    private JLabel versionLabel;
+    private StyledButton pvpButton;
+    private StyledButton aiEasyButton;
+    private StyledButton aiHardButton;
+    private StyledButton settingsButton;
+    private StyledButton exitButton;
+    private Timer glowTimer;
+    private float glowPhase = 0f;
+
     public MainMenu() {
         super("Nsolo - Main Menu");
         setIconImage(loadIcon());
         setupGUI();
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setMinimumSize(new Dimension(760, 620));
-        setSize(820, 680);
+        setMinimumSize(new Dimension(900, 640));
+        setSize(1180, 720);
         setLocationRelativeTo(null);
         setVisible(true);
         soundManager = SoundManager.getInstance();
@@ -78,73 +94,87 @@ public class MainMenu extends JFrame {
     // Fonts are provided by UITheme.getFont(FONT_SCALE, style, size)
 
     private void setupGUI() {
-        // Root container with consistent padding to avoid cramped edges
-        JPanel root = new JPanel(new BorderLayout(16, 16));
-        root.setBorder(BorderFactory.createEmptyBorder(18, 18, 18, 18));
-        root.setBackground(UITheme.BACKGROUND);
-        setContentPane(root);
+        rootPanel = new JPanel(new BorderLayout(24, 20));
+        rootPanel.setBorder(BorderFactory.createEmptyBorder(22, 22, 22, 22));
+        rootPanel.setBackground(UITheme.BACKGROUND);
+        setContentPane(rootPanel);
 
-        // LEFT: Large title block (vertically centered)
-        JPanel leftPanel = new JPanel(new BorderLayout());
-        leftPanel.setBackground(UITheme.PANEL.darker());
-        leftPanel.setBorder(BorderFactory.createEmptyBorder(56, 48, 56, 48));
+        leftPanel = new JPanel(new GridBagLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        JPanel leftCenter = new JPanel();
-        leftCenter.setLayout(new BoxLayout(leftCenter, BoxLayout.Y_AXIS));
-        leftCenter.setOpaque(false);
-        leftCenter.setAlignmentX(Component.CENTER_ALIGNMENT);
+                int w = getWidth();
+                int h = getHeight();
 
-        JLabel titleLabel = new JLabel(LanguageManager.get("menu.title"));
-        titleLabel.setFont(UITheme.getFont(FONT_SCALE, Font.BOLD, 48));
+                GradientPaint base = new GradientPaint(0, 0, UITheme.BACKGROUND, 0, h, UITheme.PANEL.darker());
+                g2.setPaint(base);
+                g2.fillRect(0, 0, w, h);
+
+                float pulse = 0.5f + 0.5f * (float) Math.sin(glowPhase);
+                int glowAlpha = 46 + (int) (36 * pulse);
+                int secondaryAlpha = 22 + (int) (16 * (1f - pulse));
+                RadialGradientPaint glow = new RadialGradientPaint(
+                        new Point2D.Float(w * 0.45f, h * 0.36f),
+                        Math.min(w, h) * 0.72f,
+                        new float[]{0f, 0.42f, 1f},
+                        new Color[]{
+                                new Color(UITheme.ACCENT.getRed(), UITheme.ACCENT.getGreen(), UITheme.ACCENT.getBlue(), glowAlpha),
+                                new Color(UITheme.PRIMARY.getRed(), UITheme.PRIMARY.getGreen(), UITheme.PRIMARY.getBlue(), secondaryAlpha),
+                                new Color(0, 0, 0, 0)
+                        }
+                );
+                g2.setPaint(glow);
+                g2.fillRect(0, 0, w, h);
+
+                g2.setColor(new Color(255, 255, 255, 16));
+                g2.fillRoundRect(20, 20, w - 40, h - 40, 30, 30);
+                g2.dispose();
+            }
+        };
+        leftPanel.setBorder(BorderFactory.createEmptyBorder(34, 34, 34, 28));
+
+        JPanel leftContent = new JPanel();
+        leftContent.setOpaque(false);
+        leftContent.setLayout(new BoxLayout(leftContent, BoxLayout.Y_AXIS));
+
+        titleLabel = new JLabel(LanguageManager.get("menu.title"));
         titleLabel.setForeground(UITheme.TEXT_MAIN);
         titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel subtitleLabel = new JLabel(LanguageManager.get("menu.subtitle"));
-        // Medium italic subtitle for hierarchy
-        subtitleLabel.setFont(UITheme.getFont(FONT_SCALE, Font.ITALIC, 18));
+        subtitleLabel = new JLabel(LanguageManager.get("menu.subtitle"));
         subtitleLabel.setForeground(UITheme.TEXT_SECONDARY);
         subtitleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel versionLabel = new JLabel("v" + VERSION);
-        versionLabel.setFont(UITheme.getFont(FONT_SCALE, Font.PLAIN, 12));
-        versionLabel.setForeground(UITheme.TEXT_SECONDARY);
+        versionLabel = new JLabel("v" + VERSION);
+        versionLabel.setForeground(new Color(220, 220, 230));
         versionLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        leftCenter.add(Box.createVerticalGlue());
-        leftCenter.add(titleLabel);
-        leftCenter.add(Box.createVerticalStrut(20));
-        leftCenter.add(subtitleLabel);
-        leftCenter.add(Box.createVerticalStrut(12));
-        leftCenter.add(versionLabel);
-        leftCenter.add(Box.createVerticalGlue());
+        leftContent.add(Box.createVerticalGlue());
+        leftContent.add(titleLabel);
+        leftContent.add(Box.createVerticalStrut(16));
+        leftContent.add(subtitleLabel);
+        leftContent.add(Box.createVerticalStrut(14));
+        leftContent.add(versionLabel);
+        leftContent.add(Box.createVerticalGlue());
+        leftPanel.add(leftContent, new GridBagConstraints());
 
-        leftPanel.add(leftCenter, BorderLayout.CENTER);
-        add(leftPanel, BorderLayout.WEST);
+        rightPanel = new JPanel(new GridBagLayout());
+        rightPanel.setOpaque(true);
+        rightPanel.setBackground(UITheme.PANEL);
+        rightPanel.setBorder(BorderFactory.createEmptyBorder(10, 18, 10, 18));
 
-        // RIGHT: Main menu buttons (centered, evenly spaced)
-        JPanel rightPanel = new JPanel(new GridBagLayout());
-        rightPanel.setBackground(UITheme.PANEL.brighter());
-        rightPanel.setBorder(BorderFactory.createEmptyBorder(50, 60, 50, 60));
+        JPanel rightCard = new JPanel();
+        rightCard.setOpaque(false);
+        rightCard.setLayout(new BoxLayout(rightCard, BoxLayout.Y_AXIS));
 
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.gridx = 0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1.0;
-        gbc.insets = new Insets(10, 0, 10, 0);
-
-        // top spacer (pushes buttons to vertical center)
-        gbc.gridy = 0;
-        gbc.weighty = 1.0;
-        rightPanel.add(Box.createVerticalGlue(), gbc);
-
-        // Menu panel (holds buttons stacked)
-        JPanel buttonsStack = new JPanel();
-        buttonsStack.setLayout(new BoxLayout(buttonsStack, BoxLayout.Y_AXIS));
+        buttonsStack = new JPanel(new GridLayout(5, 1, 0, 12));
         buttonsStack.setOpaque(false);
-        buttonsStack.setAlignmentX(Component.CENTER_ALIGNMENT);
-        buttonsStack.setBorder(BorderFactory.createEmptyBorder(10, 6, 10, 6));
+
         // Player vs Player Button
-        JButton pvpButton = createMenuButton(LanguageManager.get("menu.pvp"));
+        pvpButton = createMenuButton(LanguageManager.get("menu.pvp"));
         pvpButton.addActionListener(e -> {
             soundManager.playSound("click");
             soundManager.stopBackgroundMusic();
@@ -153,7 +183,7 @@ public class MainMenu extends JFrame {
         });
 
         // Player vs AI Easy Button
-        JButton aiEasyButton = createMenuButton(LanguageManager.get("menu.ai.easy"));
+        aiEasyButton = createMenuButton(LanguageManager.get("menu.ai.easy"));
         aiEasyButton.addActionListener(e -> {
             soundManager.playSound("click");
             soundManager.stopBackgroundMusic();
@@ -162,7 +192,7 @@ public class MainMenu extends JFrame {
         });
 
         // Player vs AI Hard Button
-        JButton aiHardButton = createMenuButton(LanguageManager.get("menu.ai.hard"));
+        aiHardButton = createMenuButton(LanguageManager.get("menu.ai.hard"));
         aiHardButton.addActionListener(e -> {
             soundManager.playSound("click");
             soundManager.stopBackgroundMusic();
@@ -170,22 +200,15 @@ public class MainMenu extends JFrame {
             new NsoloGame("AI_HARD", null);
         });
 
-        // Rules Button
-        JButton rulesButton = createMenuButton(LanguageManager.get("menu.rules"));
-        rulesButton.addActionListener(e -> {
-            soundManager.playSound("click");
-            showRules();
-        });
-
         // Settings / Accessibility & Language Button
-        JButton settingsButton = createMenuButton(LanguageManager.get("menu.settings"));
+        settingsButton = createMenuButton(LanguageManager.get("menu.settings"));
         settingsButton.addActionListener(e -> {
             soundManager.playSound("click");
             showSettingsDialog();
         });
 
         // Exit Button
-        JButton exitButton = createMenuButton(LanguageManager.get("menu.exit"));
+        exitButton = createMenuButton(LanguageManager.get("menu.exit"));
         exitButton.setBackground(UITheme.ACCENT);
         exitButton.addActionListener(e -> {
             soundManager.playSound("click");
@@ -193,57 +216,96 @@ public class MainMenu extends JFrame {
         });
 
         buttonsStack.add(pvpButton);
-        buttonsStack.add(Box.createVerticalStrut(18));
         buttonsStack.add(aiEasyButton);
-        buttonsStack.add(Box.createVerticalStrut(18));
         buttonsStack.add(aiHardButton);
-        buttonsStack.add(Box.createVerticalStrut(18));
-        buttonsStack.add(rulesButton);
-        buttonsStack.add(Box.createVerticalStrut(18));
         buttonsStack.add(settingsButton);
-        buttonsStack.add(Box.createVerticalStrut(18));
         buttonsStack.add(exitButton);
 
-        // Add the stack to the GridBag center area
-        gbc.gridy = 1;
-        gbc.weighty = 0.0;
-        rightPanel.add(buttonsStack, gbc);
+        rightCard.add(Box.createVerticalGlue());
+        rightCard.add(buttonsStack);
+        rightCard.add(Box.createVerticalGlue());
 
-        // bottom spacer
-        gbc.gridy = 2;
-        gbc.weighty = 1.0;
-        rightPanel.add(Box.createVerticalGlue(), gbc);
+        rightPanel.add(rightCard, new GridBagConstraints());
 
-        // Wrap rightPanel in a scrollpane only if needed (keeps responsiveness on small screens)
-        JScrollPane rightScroll = new JScrollPane(rightPanel);
-        rightScroll.setBorder(BorderFactory.createEmptyBorder());
-        // Slightly faster unit increment and larger block increment for smoother scroll feel
-        rightScroll.getVerticalScrollBar().setUnitIncrement(20);
-        rightScroll.getVerticalScrollBar().setBlockIncrement(80);
-        // Use BLIT scroll mode for smoother repainting on scroll
-        rightScroll.getViewport().setScrollMode(JViewport.BLIT_SCROLL_MODE);
-        rightScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        add(rightScroll, BorderLayout.CENTER);
+        rootPanel.add(leftPanel, BorderLayout.WEST);
+        rootPanel.add(rightPanel, BorderLayout.CENTER);
+
+        glowTimer = new Timer(33, e -> {
+            glowPhase += 0.06f;
+            leftPanel.repaint();
+        });
+        glowTimer.start();
+
+        addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                updateResponsiveMenuSizing();
+            }
+        });
+
+        updateResponsiveMenuSizing();
     }
 
-    private JButton createMenuButton(String text) {
-        // Use StyledButton (custom painted) but keep Theme colors and sizing
+    private StyledButton createMenuButton(String text) {
         StyledButton button = new StyledButton(text, FONT_SCALE);
-        // Buttons: bold readable
-        button.setFont(UITheme.getFont(FONT_SCALE, Font.BOLD, 16));
+        button.setFont(UITheme.getFont(FONT_SCALE, Font.BOLD, 18));
         button.setAlignmentX(Component.CENTER_ALIGNMENT);
-        // Keep consistent height but allow buttons to shrink horizontally on small screens
-        button.setPreferredSize(new Dimension(380, 72));
-        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 72));
-
-        // Keep the outline used previously
         button.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(UITheme.BORDER, 2, true),
-                BorderFactory.createEmptyBorder(10, 14, 10, 14)
+                BorderFactory.createEmptyBorder(12, 18, 12, 18)
         ));
 
 
         return button;
+    }
+
+    private void updateResponsiveMenuSizing() {
+        if (leftPanel == null || rightPanel == null || buttonsStack == null) {
+            return;
+        }
+
+        int frameW = Math.max(1, getWidth());
+        int frameH = Math.max(1, getHeight());
+        float screenScale = Math.min(frameW / 1366f, frameH / 768f);
+        float scale = Math.max(0.82f, Math.min(1.12f, screenScale));
+
+        int leftWidth = Math.max(320, Math.min(560, Math.round(frameW * 0.42f)));
+        leftPanel.setPreferredSize(new Dimension(leftWidth, 0));
+
+        int titleSize = Math.max(50, Math.min(74, Math.round(66 * scale)));
+        int subtitleSize = Math.max(16, Math.min(26, Math.round(21 * scale)));
+        int versionSize = Math.max(11, Math.min(14, Math.round(12 * scale)));
+        titleLabel.setFont(UITheme.getFont(FONT_SCALE * scale, Font.BOLD, titleSize));
+        subtitleLabel.setFont(UITheme.getFont(FONT_SCALE * scale, Font.ITALIC, subtitleSize));
+        versionLabel.setFont(UITheme.getFont(FONT_SCALE * scale, Font.PLAIN, versionSize));
+
+        int buttonWidth = Math.max(280, Math.min(420, Math.round(frameW * 0.28f)));
+        int buttonHeight = Math.max(54, Math.min(76, Math.round(64 * scale)));
+        int buttonFont = Math.max(15, Math.min(20, Math.round(18 * scale)));
+        int gap = Math.max(8, Math.min(16, Math.round(12 * scale)));
+
+        GridLayout layout = (GridLayout) buttonsStack.getLayout();
+        layout.setVgap(gap);
+
+        Dimension buttonSize = new Dimension(buttonWidth, buttonHeight);
+        int totalHeight = buttonHeight * 5 + gap * 4;
+        buttonsStack.setPreferredSize(new Dimension(buttonWidth, totalHeight));
+        buttonsStack.setMaximumSize(new Dimension(buttonWidth, totalHeight));
+        for (StyledButton button : new StyledButton[]{pvpButton, aiEasyButton, aiHardButton, settingsButton, exitButton}) {
+            button.setPreferredSize(buttonSize);
+            button.setMaximumSize(new Dimension(Integer.MAX_VALUE, buttonHeight));
+            button.setFont(UITheme.getFont(FONT_SCALE * scale, Font.BOLD, buttonFont));
+        }
+
+        int rightPadX = Math.max(20, Math.round(28 * scale));
+        int rightPadY = Math.max(18, Math.round(24 * scale));
+        rightPanel.setBorder(BorderFactory.createEmptyBorder(rightPadY, rightPadX, rightPadY, rightPadX));
+        leftPanel.setBorder(BorderFactory.createEmptyBorder(Math.max(24, Math.round(32 * scale)), Math.max(24, Math.round(34 * scale)), Math.max(24, Math.round(32 * scale)), Math.max(24, Math.round(28 * scale))));
+
+        leftPanel.revalidate();
+        rightPanel.revalidate();
+        rootPanel.revalidate();
+        repaint();
     }
 
     private void showSettingsDialog() {
@@ -391,5 +453,13 @@ public class MainMenu extends JFrame {
     public static void main(String[] args) {
         LanguageManager.load(LANGUAGE_CODE);
         SwingUtilities.invokeLater(() -> new MainMenu());
+    }
+
+    @Override
+    public void dispose() {
+        if (glowTimer != null) {
+            glowTimer.stop();
+        }
+        super.dispose();
     }
 }

@@ -26,6 +26,7 @@ public class NsoloGame extends JFrame {
     private JSlider sfxSlider;
     private JCheckBox muteCheck;
     private SoundManager soundManager;
+    private boolean muteHover = false;
 
     private int[][] board;
     private char currentPlayer;
@@ -44,8 +45,13 @@ public class NsoloGame extends JFrame {
     private JLabel movesLabel;
     private JLabel turnIndicatorLabel;
     private JPanel boardPanel;
+    private JPanel boardViewport;
     private JLabel tutorialBubbleLabel;
     private boolean tutorialAwaitingMoveCompletion = false;
+
+    private static final int BOARD_GAP = 5;
+    private static final int BOARD_MIN_CELL = 44;
+    private static final int BOARD_MAX_PADDING = 40;
 
     public NsoloGame(String mode, JFrame parentMenu) {
         super("Nsolo - Traditional Zambian Board Game");
@@ -132,7 +138,7 @@ public class NsoloGame extends JFrame {
         JPanel titlePanel = new JPanel();
         titlePanel.setLayout(new BorderLayout());
         titlePanel.setBackground(highContrast ? Color.DARK_GRAY : new Color(139, 69, 19));
-        titlePanel.setPreferredSize(new Dimension(1000, 120));
+        titlePanel.setPreferredSize(new Dimension(1000, 104));
         titlePanel.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
 
 // Title label in center
@@ -146,12 +152,30 @@ public class NsoloGame extends JFrame {
         audioPanel.setLayout(new BoxLayout(audioPanel, BoxLayout.Y_AXIS));
         audioPanel.setOpaque(false);
 
-        muteButton = new JButton();
+        muteButton = new JButton() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                if (muteHover) {
+                    g2.setColor(new Color(255, 255, 255, 18));
+                    g2.fillRoundRect(2, 2, getWidth() - 4, getHeight() - 4, 16, 16);
+                    g2.setColor(new Color(255, 209, 102, 28));
+                    g2.fillRoundRect(4, 4, getWidth() - 8, getHeight() - 8, 14, 14);
+                }
+
+                super.paintComponent(g2);
+                g2.dispose();
+            }
+        };
         muteButton.setPreferredSize(new Dimension(45, 45));
         muteButton.setFocusPainted(false);
-        muteButton.setBorderPainted(true);
-        muteButton.setBackground(new Color(30, 45, 59));
-        muteButton.setBorder(BorderFactory.createLineBorder(new Color(112, 151, 187), 1, true));
+        muteButton.setBorderPainted(false);
+        muteButton.setContentAreaFilled(false);
+        muteButton.setOpaque(false);
+        muteButton.setBackground(new Color(0, 0, 0, 0));
+        muteButton.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
         muteButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
         muteButton.setToolTipText("Mute / unmute");
         updateMuteIcon();
@@ -163,6 +187,20 @@ public class NsoloGame extends JFrame {
                 muteCheck.setSelected(soundManager.isMuted());
             }
             updateMuteIcon();
+        });
+
+        muteButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                muteHover = true;
+                muteButton.repaint();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                muteHover = false;
+                muteButton.repaint();
+            }
         });
 
         muteCheck = new JCheckBox("Mute");
@@ -227,9 +265,9 @@ public class NsoloGame extends JFrame {
         add(titlePanel, BorderLayout.NORTH);
 
         // Board Panel
-        boardPanel = new JPanel(new GridLayout(ROWS, COLS, 5, 5));
+        boardPanel = new JPanel(new GridLayout(ROWS, COLS, BOARD_GAP, BOARD_GAP));
         boardPanel.setBackground(highContrast ? Color.BLACK : new Color(101, 67, 33));
-        boardPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        boardPanel.setBorder(BorderFactory.createEmptyBorder(14, 14, 14, 14));
         cellPanels = new StoneCell[ROWS][COLS];
 
         for (int i = 0; i < ROWS; i++) {
@@ -272,12 +310,23 @@ public class NsoloGame extends JFrame {
                 boardPanel.add(stoneCell);
             }
         }
-        add(boardPanel, BorderLayout.CENTER);
+        boardViewport = new JPanel(null) {
+            @Override
+            public void doLayout() {
+                super.doLayout();
+                layoutBoardViewport();
+            }
+        };
+        boardViewport.setOpaque(false);
+        boardViewport.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        boardViewport.add(boardPanel);
+        add(boardViewport, BorderLayout.CENTER);
 
         // Info Panel
         JPanel infoPanel = new JPanel(new GridLayout(5, 1, 5, 5));
         infoPanel.setBackground(highContrast ? new Color(40, 40, 40) : new Color(245, 222, 179));
-        infoPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        infoPanel.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+        infoPanel.setPreferredSize(new Dimension(0, 128));
 
         turnIndicatorLabel = new JLabel();
         turnIndicatorLabel.setHorizontalAlignment(SwingConstants.CENTER);
@@ -339,6 +388,9 @@ public class NsoloGame extends JFrame {
         rulesPanel.setBackground(highContrast ? new Color(30, 30, 30) : new Color(255, 248, 220));
         rulesPanel.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(new Color(89, 123, 155)),
                 "Quick Guide"));
+        rulesPanel.setPreferredSize(new Dimension(220, 0));
+        rulesPanel.setMinimumSize(new Dimension(180, 0));
+        rulesPanel.setMaximumSize(new Dimension(240, Integer.MAX_VALUE));
 
         String[] rules = {
                 "• Player A (Red): Bottom 2 rows",
@@ -357,6 +409,52 @@ public class NsoloGame extends JFrame {
         }
 
         add(rulesPanel, BorderLayout.EAST);
+
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                layoutBoardViewport();
+            }
+        });
+        layoutBoardViewport();
+    }
+
+    private void layoutBoardViewport() {
+        if (boardViewport == null || boardPanel == null) {
+            return;
+        }
+
+        int viewportW = boardViewport.getWidth();
+        int viewportH = boardViewport.getHeight();
+        if (viewportW <= 0 || viewportH <= 0) {
+            return;
+        }
+
+        int padding = Math.min(BOARD_MAX_PADDING, Math.max(12, Math.min(viewportW, viewportH) / 18));
+        int usableW = Math.max(0, viewportW - padding * 2);
+        int usableH = Math.max(0, viewportH - padding * 2);
+
+        int cellW = (usableW - (COLS - 1) * BOARD_GAP) / COLS;
+        int cellH = (usableH - (ROWS - 1) * BOARD_GAP) / ROWS;
+        int cellSize = Math.max(BOARD_MIN_CELL, Math.min(cellW, cellH));
+
+        int boardW = cellSize * COLS + (COLS - 1) * BOARD_GAP;
+        int boardH = cellSize * ROWS + (ROWS - 1) * BOARD_GAP;
+
+        if (boardW > usableW) {
+            cellSize = Math.max(BOARD_MIN_CELL, (usableW - (COLS - 1) * BOARD_GAP) / COLS);
+            boardW = cellSize * COLS + (COLS - 1) * BOARD_GAP;
+        }
+        if (boardH > usableH) {
+            cellSize = Math.max(BOARD_MIN_CELL, (usableH - (ROWS - 1) * BOARD_GAP) / ROWS);
+            boardH = cellSize * ROWS + (ROWS - 1) * BOARD_GAP;
+        }
+
+        int x = Math.max(0, (viewportW - boardW) / 2);
+        int y = Math.max(0, (viewportH - boardH) / 2);
+        boardPanel.setBounds(x, y, boardW, boardH);
+        boardPanel.revalidate();
+        boardPanel.repaint();
     }
 
     private void styleActionButton(JButton button, Color base, float fontScale) {
@@ -826,7 +924,6 @@ public class NsoloGame extends JFrame {
 
         stopAllAnimations();
         disableAllInput();
-        soundManager.stopAllSounds();
 
         SwingUtilities.invokeLater(() -> {
             initializeGame();
