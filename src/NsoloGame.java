@@ -24,9 +24,9 @@ public class NsoloGame extends JFrame {
     private JButton muteButton;
     private JSlider musicSlider;
     private JSlider sfxSlider;
-    private JCheckBox muteCheck;
     private SoundManager soundManager;
     private boolean muteHover = false;
+    private boolean mutePressed = false;
 
     private int[][] board;
     private char currentPlayer;
@@ -157,12 +157,21 @@ public class NsoloGame extends JFrame {
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
 
-                if (muteHover) {
-                    g2.setColor(new Color(255, 255, 255, 18));
-                    g2.fillRoundRect(2, 2, getWidth() - 4, getHeight() - 4, 16, 16);
-                    g2.setColor(new Color(255, 209, 102, 28));
-                    g2.fillRoundRect(4, 4, getWidth() - 8, getHeight() - 8, 14, 14);
+                // Keep a transparent button while adding a modern hover/press glow ring.
+                int w = getWidth();
+                int h = getHeight();
+                int d = Math.min(w, h) - 8;
+                int x = (w - d) / 2;
+                int y = (h - d) / 2;
+                if (muteHover || mutePressed) {
+                    int outerAlpha = mutePressed ? 64 : 44;
+                    int innerAlpha = mutePressed ? 42 : 28;
+                    g2.setColor(new Color(255, 214, 120, outerAlpha));
+                    g2.fillOval(x - 2, y - 2, d + 4, d + 4);
+                    g2.setColor(new Color(255, 255, 255, innerAlpha));
+                    g2.fillOval(x + 1, y + 1, d - 2, d - 2);
                 }
 
                 super.paintComponent(g2);
@@ -183,9 +192,6 @@ public class NsoloGame extends JFrame {
         muteButton.addActionListener(e -> {
             soundManager.playSound("click");
             soundManager.setMuted(!soundManager.isMuted());
-            if (muteCheck != null) {
-                muteCheck.setSelected(soundManager.isMuted());
-            }
             updateMuteIcon();
         });
 
@@ -199,17 +205,21 @@ public class NsoloGame extends JFrame {
             @Override
             public void mouseExited(MouseEvent e) {
                 muteHover = false;
+                mutePressed = false;
                 muteButton.repaint();
             }
-        });
 
-        muteCheck = new JCheckBox("Mute");
-        muteCheck.setOpaque(false);
-        muteCheck.setForeground(Theme.TEXT_MUTED);
-        muteCheck.setSelected(soundManager.isMuted());
-        muteCheck.addActionListener(e -> {
-            soundManager.setMuted(muteCheck.isSelected());
-            updateMuteIcon();
+            @Override
+            public void mousePressed(MouseEvent e) {
+                mutePressed = true;
+                muteButton.repaint();
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                mutePressed = false;
+                muteButton.repaint();
+            }
         });
 
         musicSlider = new JSlider(0, 100, (int) (soundManager.getMusicVolume() * 100));
@@ -241,7 +251,6 @@ public class NsoloGame extends JFrame {
         JPanel row1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         row1.setOpaque(false);
         row1.add(muteButton);
-        row1.add(muteCheck);
 
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         row2.setOpaque(false);
@@ -507,6 +516,7 @@ public class NsoloGame extends JFrame {
             muteButton.setForeground(Color.WHITE);
         }
     }
+
 
     private ImageIcon loadUiIcon(String path) {
         URL url = getClass().getResource(path);
