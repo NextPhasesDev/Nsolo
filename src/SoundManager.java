@@ -565,6 +565,10 @@ public class SoundManager {
     }
 
     public void startBackgroundMusic(String musicType) {
+        if (musicType != null && musicType.equals(currentMusicType) && backgroundMusic != null && backgroundMusic.isRunning()) {
+            applyVolume(backgroundMusic, musicVolume);
+            return;
+        }
         stopBackgroundMusic();
         if (isMuted) return;
 
@@ -707,6 +711,34 @@ public class SoundManager {
 
     public String getCurrentMusicType() {
         return currentMusicType;
+    }
+
+    public boolean isMusicPlaying() {
+        return backgroundMusic != null && backgroundMusic.isRunning();
+    }
+
+    /**
+     * Release audio resources. After calling this, SoundManager may no longer be usable
+     * until reinitialized. Best-effort cleanup of open clips.
+     */
+    public void release() {
+        try {
+            if (backgroundMusic != null) {
+                try { backgroundMusic.stop(); } catch (Exception ignored) {}
+                try { backgroundMusic.close(); } catch (Exception ignored) {}
+                backgroundMusic = null;
+            }
+            for (Map.Entry<String, Clip> e : soundClips.entrySet()) {
+                Clip c = e.getValue();
+                if (c != null) {
+                    try { c.stop(); } catch (Exception ignored) {}
+                    try { c.close(); } catch (Exception ignored) {}
+                }
+            }
+            soundClips.clear();
+        } finally {
+            instance = null;
+        }
     }
 }
 

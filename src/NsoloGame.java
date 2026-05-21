@@ -7,7 +7,6 @@ import java.awt.event.*;
 import javax.swing.Timer;
 import javax.imageio.ImageIO;
 import java.io.IOException;
-import java.net.URL;
 
 public class NsoloGame extends JFrame {
     private static final int ROWS = 4;
@@ -19,14 +18,12 @@ public class NsoloGame extends JFrame {
     private Timer pickupTimer;
     private Timer aiDelayTimer;
     private final java.util.List<Timer> uiTimers = new java.util.ArrayList<>();
-    private String gameMode; // "PVP", "AI_EASY", "AI_HARD"
+    private final String gameMode; // "PVP", "AI_EASY", "AI_HARD"
     private NsoloAI ai;
-    private JButton muteButton;
+    private ArcadeButton muteButton;
     private JSlider musicSlider;
     private JSlider sfxSlider;
-    private SoundManager soundManager;
-    private boolean muteHover = false;
-    private boolean mutePressed = false;
+    private final AudioManager audioManager;
 
     private int[][] board;
     private char currentPlayer;
@@ -36,14 +33,22 @@ public class NsoloGame extends JFrame {
     private boolean gameOver;
     private GameState gameState = GameState.PLAYING;
     private final java.util.List<TutorialStep> tutorialSteps = new java.util.ArrayList<>();
+    private final java.util.List<JLabel> ruleLabels = new java.util.ArrayList<>();
     private int tutorialStepIndex = -1;
     private boolean tutorialActive = false;
 
     StoneCell[][] cellPanels;
+    private JLabel gameTitleLabel;
     private JLabel statusLabel;
     private JLabel scoreLabel;
     private JLabel movesLabel;
     private JLabel turnIndicatorLabel;
+    private JLabel musicTextLabel;
+    private JLabel sfxTextLabel;
+    private JLabel rulesTitleLabel;
+    private ArcadeButton resetBtn;
+    private ArcadeButton backBtn;
+    private ArcadeButton tutorialBtn;
     private JPanel boardPanel;
     private JPanel boardViewport;
     private JLabel tutorialBubbleLabel;
@@ -66,14 +71,14 @@ public class NsoloGame extends JFrame {
             this.ai = new NsoloAI(this, "HARD");
         }
 
-        soundManager = SoundManager.getInstance();
+        audioManager = AudioManager.getInstance();
         // Choose music based on game mode
         if (mode.equals("AI_HARD")) {
-            soundManager.startBackgroundMusic("ai_hard_music");
+            audioManager.startMusic("ai_hard_music");
         } else if (mode.equals("AI_EASY")) {
-            soundManager.startBackgroundMusic("ai_easy_music");
+            audioManager.startMusic("ai_easy_music");
         } else {
-            soundManager.startBackgroundMusic("pvp_music");
+            audioManager.startMusic("pvp_music");
         }
 
         initializeGame();
@@ -142,10 +147,10 @@ public class NsoloGame extends JFrame {
         titlePanel.setPreferredSize(new Dimension(1000, 104));
         titlePanel.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
 
-        JLabel titleLabel = new JLabel("NSOLO - Traditional Zambian Board Game", SwingConstants.CENTER);
-        titleLabel.setFont(scaledFont("Segoe UI", Font.BOLD, 30, fontScale));
-        titleLabel.setForeground(BoardStyle.TEXT_PRIMARY);
-        titlePanel.add(titleLabel, BorderLayout.CENTER);
+        gameTitleLabel = new JLabel(LanguageManager.t("game.title"), SwingConstants.CENTER);
+        gameTitleLabel.setFont(scaledFont("Segoe UI", Font.BOLD, 30, fontScale));
+        gameTitleLabel.setForeground(BoardStyle.TEXT_PRIMARY);
+        titlePanel.add(gameTitleLabel, BorderLayout.CENTER);
 
         JPanel audioPanel = new JPanel();
         audioPanel.setLayout(new BoxLayout(audioPanel, BoxLayout.Y_AXIS));
@@ -154,38 +159,38 @@ public class NsoloGame extends JFrame {
         muteButton = new ArcadeButton(BoardStyle.SURFACE, BoardStyle.ACTIVE_BORDER, ArcadeButton.muteGlyphPainter());
         muteButton.setPreferredSize(new Dimension(45, 45));
         muteButton.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        muteButton.setToolTipText("Mute / unmute");
+        muteButton.setToolTipText(t("game.audio.muteTooltip"));
         updateMuteIcon();
 
         muteButton.addActionListener(e -> {
-            soundManager.playSound("click");
-            soundManager.setMuted(!soundManager.isMuted());
+            audioManager.playSfx("click");
+            audioManager.toggleMute();
             updateMuteIcon();
         });
 
-        musicSlider = new JSlider(0, 100, (int) (soundManager.getMusicVolume() * 100));
+        musicSlider = new JSlider(0, 100, (int) (audioManager.getMusicVolume() * 100));
         musicSlider.setOpaque(false);
-        musicSlider.setToolTipText("Music");
+        musicSlider.setToolTipText(t("game.audio.music"));
         musicSlider.setPreferredSize(new Dimension(120, 22));
         musicSlider.addChangeListener(e -> {
             float v = musicSlider.getValue() / 100f;
-            soundManager.previewMusicVolume(v);
+            audioManager.previewMusicVolume(v);
             if (!musicSlider.getValueIsAdjusting()) {
-                soundManager.setMusicVolume(v);
+                audioManager.setMusicVolume(v);
             }
             updateMuteIcon();
         });
 
-        sfxSlider = new JSlider(0, 100, (int) (soundManager.getSfxVolume() * 100));
+        sfxSlider = new JSlider(0, 100, (int) (audioManager.getSfxVolume() * 100));
         sfxSlider.setOpaque(false);
-        sfxSlider.setToolTipText("SFX");
+        sfxSlider.setToolTipText(t("game.audio.sfx"));
         sfxSlider.setPreferredSize(new Dimension(120, 22));
         sfxSlider.addChangeListener(e -> {
             float v = sfxSlider.getValue() / 100f;
-            soundManager.previewSfxVolume(v);
+            audioManager.previewSfxVolume(v);
             if (!sfxSlider.getValueIsAdjusting()) {
-                soundManager.setSfxVolume(v);
-                soundManager.playSfxPreview();
+                audioManager.setSfxVolume(v);
+                audioManager.playSfxPreview();
             }
         });
 
@@ -195,16 +200,16 @@ public class NsoloGame extends JFrame {
 
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         row2.setOpaque(false);
-        JLabel musicLabel = new JLabel("Music");
-        musicLabel.setForeground(BoardStyle.TEXT_SECONDARY);
-        row2.add(musicLabel);
+        musicTextLabel = new JLabel(t("game.audio.music"));
+        musicTextLabel.setForeground(BoardStyle.TEXT_SECONDARY);
+        row2.add(musicTextLabel);
         row2.add(musicSlider);
 
         JPanel row3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         row3.setOpaque(false);
-        JLabel sfxLabel = new JLabel("SFX");
-        sfxLabel.setForeground(BoardStyle.TEXT_SECONDARY);
-        row3.add(sfxLabel);
+        sfxTextLabel = new JLabel(t("game.audio.sfx"));
+        sfxTextLabel.setForeground(BoardStyle.TEXT_SECONDARY);
+        row3.add(sfxTextLabel);
         row3.add(sfxSlider);
 
         audioPanel.add(row1);
@@ -314,7 +319,7 @@ public class NsoloGame extends JFrame {
         turnIndicatorLabel.setForeground(BoardStyle.PLAYER_A);
         updateTurnIndicator();
 
-        statusLabel = new JLabel("Player A's Turn", SwingConstants.CENTER);
+        statusLabel = new JLabel(tf("game.status.playerTurn", t("game.playerA")), SwingConstants.CENTER);
         statusLabel.setFont(scaledFont("Segoe UI", Font.BOLD, 20, fontScale));
         statusLabel.setForeground(BoardStyle.TEXT_PRIMARY);
 
@@ -330,28 +335,27 @@ public class NsoloGame extends JFrame {
         ));
         tutorialBubbleLabel.setVisible(false);
 
-        scoreLabel = new JLabel("Score - A: 0 | B: 0", SwingConstants.CENTER);
+        scoreLabel = new JLabel(tf("game.score", 0, 0), SwingConstants.CENTER);
         scoreLabel.setFont(scaledFont("Segoe UI", Font.BOLD, 16, fontScale));
         scoreLabel.setForeground(BoardStyle.TEXT_PRIMARY);
 
-        movesLabel = new JLabel("Moves: 0", SwingConstants.CENTER);
+        movesLabel = new JLabel(tf("game.moves", 0), SwingConstants.CENTER);
         movesLabel.setFont(scaledFont("Segoe UI", Font.PLAIN, 14, fontScale));
         movesLabel.setForeground(BoardStyle.TEXT_SECONDARY);
 
-        JButton resetBtn = new ArcadeButton("Reset Game", BoardStyle.PLAYER_A, BoardStyle.PLAYER_A_GLOW);
+        resetBtn = new ArcadeButton(t("game.button.reset"), BoardStyle.PLAYER_A, BoardStyle.PLAYER_A_GLOW);
         resetBtn.setFont(scaledFont("Segoe UI", Font.BOLD, 14, fontScale));
         resetBtn.addActionListener(e -> resetGame());
 
-        JButton backBtn = new ArcadeButton("Back to Menu", BoardStyle.PLAYER_B, BoardStyle.PLAYER_B_GLOW);
+        backBtn = new ArcadeButton(t("game.button.back"), BoardStyle.PLAYER_B, BoardStyle.PLAYER_B_GLOW);
         backBtn.setFont(scaledFont("Segoe UI", Font.BOLD, 14, fontScale));
         backBtn.addActionListener(e -> {
             // Silent quit: stop sowing/AI and stop all audio immediately.
             stopAllTimers();
-            soundManager.stopAllSounds();
             super.dispose();
             new MainMenu();
         });
-        JButton tutorialBtn = new ArcadeButton("Tutorial", BoardStyle.ACTIVE_BORDER, BoardStyle.SUCCESS);
+        tutorialBtn = new ArcadeButton(t("game.button.tutorial"), BoardStyle.ACTIVE_BORDER, BoardStyle.SUCCESS);
         tutorialBtn.setFont(scaledFont("Segoe UI", Font.BOLD, 14, fontScale));
         tutorialBtn.addActionListener(e -> startTutorial());
 
@@ -372,26 +376,18 @@ public class NsoloGame extends JFrame {
         rulesPanel.setMinimumSize(new Dimension(180, 0));
         rulesPanel.setMaximumSize(new Dimension(240, Integer.MAX_VALUE));
 
-        JLabel rulesTitle = new JLabel("Quick Guide");
-        rulesTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
-        rulesTitle.setFont(scaledFont("Segoe UI", Font.BOLD, 16, fontScale));
-        rulesTitle.setForeground(BoardStyle.TEXT_PRIMARY);
-        rulesPanel.add(rulesTitle);
+        rulesTitleLabel = new JLabel(t("game.rules.title"));
+        rulesTitleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        rulesTitleLabel.setFont(scaledFont("Segoe UI", Font.BOLD, 16, fontScale));
+        rulesTitleLabel.setForeground(BoardStyle.TEXT_PRIMARY);
+        rulesPanel.add(rulesTitleLabel);
         rulesPanel.add(Box.createVerticalStrut(12));
 
-        String[] rules = {
-                "• Player A (Red): Bottom 2 rows",
-                "• Player B (Blue): Top 2 rows",
-                "• Click a cell to pick stones",
-                "• Stones drop one per cell",
-                "• Capture opponent's stones",
-                "• Most captures wins!"
-        };
-
-        for (String rule : rules) {
-            JLabel ruleLabel = new JLabel(rule);
+        for (int i = 1; i <= 6; i++) {
+            JLabel ruleLabel = new JLabel(t("game.rules.line" + i));
             ruleLabel.setFont(scaledFont("Segoe UI", Font.PLAIN, 15, fontScale));
             ruleLabel.setForeground(BoardStyle.TEXT_SECONDARY);
+            ruleLabels.add(ruleLabel);
             rulesPanel.add(ruleLabel);
         }
 
@@ -480,7 +476,7 @@ public class NsoloGame extends JFrame {
     }
 
     private void updateMuteIcon() {
-        if (soundManager.isMuted() || soundManager.getMusicVolume() <= 0.01f) {
+        if (audioManager.isMuted() || audioManager.getMusicVolume() <= 0.01f) {
             muteButton.setForeground(BoardStyle.DANGER);
         } else {
             muteButton.setForeground(BoardStyle.TEXT_PRIMARY);
@@ -489,6 +485,13 @@ public class NsoloGame extends JFrame {
     }
 
     
+    private String t(String key) {
+        return LanguageManager.get(key);
+    }
+
+    private String tf(String key, Object... args) {
+        return LanguageManager.format(key, args);
+    }
 
     private void handleCellClick(int row, int col) {
         if (isAnimating() || isResetting) return;
@@ -514,14 +517,14 @@ public class NsoloGame extends JFrame {
         // Check if it's the player's territory
         if (!isPlayerTerritory(row, currentPlayer)) {
             statusLabel.setText("Invalid move! Select from your territory.");
-            soundManager.playSound("invalid");
+            audioManager.playSfx("invalid");
             return;
         }
 
         // Check if cell has stones
         if (board[row][col] == 0) {
             statusLabel.setText("Cannot select empty cell!");
-            soundManager.playSound("invalid");
+            audioManager.playSfx("invalid");
             return;
         }
 
@@ -610,7 +613,7 @@ public class NsoloGame extends JFrame {
                         stoneFlightLayer.animateStone(prevRow, prevCol, currentRow[0], currentCol[0], stoneFlightColor);
                     }
                     updateBoard();
-                    soundManager.playSound("drop");
+                    audioManager.playSfx("drop");
 
                     // If last stone and cell has more than 1, pick up all stones
                     if (stonesInHand[0] == 0 && board[currentRow[0]][currentCol[0]] > 1) {
@@ -619,12 +622,12 @@ public class NsoloGame extends JFrame {
 
                         // Brief pause to show the pickup
                         animationTimer.stop();
-                        soundManager.playSound("pickup");
+                        audioManager.playSfx("pickup");
                         pickupTimer = new Timer(300, new ActionListener() {
                             @Override
                             public void actionPerformed(ActionEvent evt) {
                                 updateBoard();
-                                soundManager.playSound("drop");
+                                audioManager.playSfx("drop");
                                 animationTimer.start();
                             }
                         });
@@ -653,7 +656,7 @@ public class NsoloGame extends JFrame {
         statusLabel.setText("Player " + currentPlayer + "'s Turn");
         updateTurnIndicator();
         movesLabel.setText("Moves: " + moveCount);
-        soundManager.playSound("complete");
+        audioManager.playSfx("complete");
 
         isAnimating = false;
         gameState = GameState.PLAYING;
@@ -788,14 +791,14 @@ public class NsoloGame extends JFrame {
             if (currentPlayer == 'A') {
                 capturedA += captured;
                 statusLabel.setText("Player A captured " + captured + " stones from column " + finalCol + "!");
-                soundManager.playSound("capture");
+                audioManager.playSfx("capture");
 
                 // Flash the captured cells
                 flashCapturedCells(0, 1, finalCol);
             } else {
                 capturedB += captured;
                 statusLabel.setText("Player B captured " + captured + " stones from column " + finalCol + "!");
-                soundManager.playSound("capture");
+                audioManager.playSfx("capture");
 
                 // Flash the captured cells
                 flashCapturedCells(2, 3, finalCol);
@@ -839,7 +842,7 @@ public class NsoloGame extends JFrame {
         // Switch to intense music if:
         // - Less than 25% stones remain AND score is close (diff <= 5)
         if (totalRemaining <= 16 && scoreDiff <= 5) {
-            soundManager.setMusicIntensity(SoundManager.MusicIntensity.INTENSE);
+            audioManager.setMusicIntensity(SoundManager.MusicIntensity.INTENSE);
         }
     }
 
@@ -855,7 +858,7 @@ public class NsoloGame extends JFrame {
         if (!playerAHasStones || !playerBHasStones) {
             gameOver = true;
             gameState = GameState.GAME_OVER;
-            soundManager.stopBackgroundMusic();
+            audioManager.stopMusic();
 
             String winner;
             boolean playerAWins = capturedA > capturedB;
@@ -864,21 +867,21 @@ public class NsoloGame extends JFrame {
             if (playerAWins) {
                 winner = "Player A wins with " + capturedA + " captured stones!";
                 // In AI mode, player A is the human
-                if (gameMode != null && gameMode.startsWith("AI")) {
-                    soundManager.playSound("win");
+                    if (gameMode != null && gameMode.startsWith("AI")) {
+                    audioManager.playSfx("win");
                 } else {
-                    soundManager.playSound("win");
+                    audioManager.playSfx("win");
                 }
             } else if (isTie) {
                 winner = "It's a tie! Both players captured " + capturedA + " stones.";
-                soundManager.playSound("complete");
+                audioManager.playSfx("complete");
             } else {
                 winner = "Player B wins with " + capturedB + " captured stones!";
                 // In AI mode, player B is the AI
                 if (gameMode != null && gameMode.startsWith("AI")) {
-                    soundManager.playSound("lose");
+                    audioManager.playSfx("lose");
                 } else {
-                    soundManager.playSound("win");
+                    audioManager.playSfx("win");
                 }
             }
 
@@ -1029,8 +1032,8 @@ public class NsoloGame extends JFrame {
         // Safety: if window is closed during an animation, prevent further board mutations and sounds.
         try {
             stopAllTimers();
-            if (soundManager != null) {
-                soundManager.stopAllSounds();
+            if (audioManager != null) {
+                audioManager.stopMusic();
             }
         } catch (Exception ignored) {
             // Best-effort cleanup only.

@@ -1,34 +1,39 @@
-import java.util.Locale;
-import java.util.ResourceBundle;
+public final class LanguageManager {
+    private static final TranslationManager TRANSLATIONS = TranslationManager.getInstance();
 
-public class LanguageManager {
-    private static ResourceBundle bundle;
+    private LanguageManager() {
+    }
 
     public static void load(String languageCode) {
-        Locale locale;
+        TRANSLATIONS.setLanguage(languageCode);
+    }
 
-        switch (languageCode) {
-            case "bem":
-                locale = Locale.of("bem");
-                break;
-            case "ny":
-                locale = Locale.of("ny");
-                break;
-            default:
-                locale = Locale.of("en");
-        }
-
-        bundle = ResourceBundle.getBundle("resources.lang.messages", locale);
+    public static String getCurrentLanguage() {
+        return TRANSLATIONS.getCurrentLanguage();
     }
 
     public static String get(String key) {
-        try {
-            if (bundle == null) {
-                load("en");
-            }
-            return bundle.getString(key);
-        } catch (Exception e) {
-            return key; // fallback
-        }
+        return TRANSLATIONS.tr(key);
+    }
+
+    public static String format(String key, Object... args) {
+        return TRANSLATIONS.trf(key, args);
+    }
+
+    // Alias helpers to keep UI code short.
+    public static String t(String key) {
+        return get(key);
+    }
+
+    public static String tf(String key, Object... args) {
+        return format(key, args);
+    }
+
+    public static void addLanguageChangeListener(Runnable listener) {
+        TRANSLATIONS.addLanguageChangeListener(listener);
+    }
+
+    public static void removeLanguageChangeListener(Runnable listener) {
+        TRANSLATIONS.removeLanguageChangeListener(listener);
     }
 }

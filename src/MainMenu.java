@@ -3,9 +3,10 @@ import java.awt.*;
 import java.awt.geom.Point2D;
 import javax.imageio.ImageIO;
 import java.io.IOException;
+import java.util.*;
 
 public class MainMenu extends JFrame {
-    private SoundManager soundManager;
+    private AudioManager audioManager;
     private static final String VERSION = "1.1.0";
 
     // Simple accessibility + localization settings (shared with game windows)
@@ -20,25 +21,32 @@ public class MainMenu extends JFrame {
     private JLabel titleLabel;
     private JLabel subtitleLabel;
     private JLabel versionLabel;
-    private StyledButton pvpButton;
-    private StyledButton aiEasyButton;
-    private StyledButton aiHardButton;
-    private StyledButton settingsButton;
-    private StyledButton exitButton;
-    private Timer glowTimer;
-    private float glowPhase = 0f;
+    private ArcadeButton pvpButton;
+    private ArcadeButton aiEasyButton;
+    private ArcadeButton aiHardButton;
+    private ArcadeButton settingsButton;
+    private ArcadeButton exitButton;
+    private javax.swing.Timer bgTimer;
+    private float gradientPhase = 0f;
+    private final java.util.List<Particle> particles = new java.util.ArrayList<>();
+    private float fadeAlpha = 0f;
+    private javax.swing.Timer fadeTimer;
+    private String pendingMode = null;
+    private boolean handoffToGame = false;
+    private final Runnable languageChangeListener = this::refreshLocalizedText;
 
     public MainMenu() {
-        super("Nsolo - Main Menu");
+        super(LanguageManager.get("app.title.menu"));
+        audioManager = AudioManager.getInstance();
         setIconImage(loadIcon());
         setupGUI();
+        LanguageManager.addLanguageChangeListener(languageChangeListener);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setMinimumSize(new Dimension(900, 640));
         setSize(1180, 720);
         setLocationRelativeTo(null);
         setVisible(true);
-        soundManager = SoundManager.getInstance();
-        soundManager.startBackgroundMusic("menu_music");
+        audioManager.startMusic("menu_music");
     }
 
     private Image loadIcon() {
@@ -94,62 +102,89 @@ public class MainMenu extends JFrame {
     // Fonts are provided by UITheme.getFont(FONT_SCALE, style, size)
 
     private void setupGUI() {
-        rootPanel = new JPanel(new BorderLayout(24, 20));
-        rootPanel.setBorder(BorderFactory.createEmptyBorder(22, 22, 22, 22));
-        rootPanel.setBackground(UITheme.BACKGROUND);
-        setContentPane(rootPanel);
-
-        leftPanel = new JPanel(new GridBagLayout()) {
+        rootPanel = new JPanel(new BorderLayout(24, 20)) {
             @Override
             protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
                 Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
+                BoardStyle.enableQuality(g2);
                 int w = getWidth();
                 int h = getHeight();
 
-                GradientPaint base = new GradientPaint(0, 0, UITheme.BACKGROUND, 0, h, UITheme.PANEL.darker());
-                g2.setPaint(base);
+                // moving vertical gradient
+                float offset = (float) Math.sin(gradientPhase) * 0.12f;
+                Color a = BoardStyle.mix(BoardStyle.BOARD_BASE, BoardStyle.PLAYER_A, 0.02f + offset);
+                Color b = BoardStyle.mix(BoardStyle.BOARD_EDGE, BoardStyle.PLAYER_B, 0.02f - offset);
+                GradientPaint gp = new GradientPaint(0, 0, a, w, h, b);
+                g2.setPaint(gp);
                 g2.fillRect(0, 0, w, h);
 
-                float pulse = 0.5f + 0.5f * (float) Math.sin(glowPhase);
-                int glowAlpha = 46 + (int) (36 * pulse);
-                int secondaryAlpha = 22 + (int) (16 * (1f - pulse));
-                RadialGradientPaint glow = new RadialGradientPaint(
-                        new Point2D.Float(w * 0.45f, h * 0.36f),
-                        Math.min(w, h) * 0.72f,
-                        new float[]{0f, 0.42f, 1f},
-                        new Color[]{
-                                new Color(UITheme.ACCENT.getRed(), UITheme.ACCENT.getGreen(), UITheme.ACCENT.getBlue(), glowAlpha),
-                                new Color(UITheme.PRIMARY.getRed(), UITheme.PRIMARY.getGreen(), UITheme.PRIMARY.getBlue(), secondaryAlpha),
-                                new Color(0, 0, 0, 0)
-                        }
-                );
-                g2.setPaint(glow);
+                // subtle ambient glow overlay
+                RadialGradientPaint rg = new RadialGradientPaint(new Point2D.Float(w * 0.5f, h * 0.35f), Math.max(w, h) * 0.8f,
+                        new float[]{0f, 0.6f, 1f}, new Color[]{BoardStyle.withAlpha(BoardStyle.PLAYER_A, 22), BoardStyle.withAlpha(BoardStyle.PLAYER_B, 10), new Color(0, 0, 0, 0)});
+                g2.setPaint(rg);
                 g2.fillRect(0, 0, w, h);
 
-                g2.setColor(new Color(255, 255, 255, 16));
-                g2.fillRoundRect(20, 20, w - 40, h - 40, 30, 30);
+                // particles
+                for (Particle p : particles) {
+                    g2.setColor(BoardStyle.withAlpha(p.color, (int) (p.alpha * 255)));
+                    int s = Math.max(2, Math.round(p.size));
+                    g2.fillOval(Math.round(p.x - s / 2f), Math.round(p.y - s / 2f), s, s);
+                }
+
+                // fade overlay
+                if (fadeAlpha > 0f) {
+                    g2.setColor(BoardStyle.withAlpha(Color.BLACK, (int) (fadeAlpha * 255)));
+                    g2.fillRect(0, 0, w, h);
+                }
                 g2.dispose();
             }
         };
+        rootPanel.setBorder(BorderFactory.createEmptyBorder(22, 22, 22, 22));
+        rootPanel.setOpaque(true);
+        setContentPane(rootPanel);
+
+        leftPanel = new JPanel(new GridBagLayout());
+        leftPanel.setOpaque(false);
         leftPanel.setBorder(BorderFactory.createEmptyBorder(34, 34, 34, 28));
 
         JPanel leftContent = new JPanel();
         leftContent.setOpaque(false);
         leftContent.setLayout(new BoxLayout(leftContent, BoxLayout.Y_AXIS));
 
-        titleLabel = new JLabel(LanguageManager.get("menu.title"));
-        titleLabel.setForeground(UITheme.TEXT_MAIN);
+        titleLabel = new JLabel(t("menu.title")) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                BoardStyle.enableQuality(g2);
+                String text = getText();
+                Font f = getFont();
+                g2.setFont(f);
+                FontMetrics fm = g2.getFontMetrics();
+                int w = getWidth();
+                int h = getHeight();
+                int tx = (w - fm.stringWidth(text)) / 2;
+                int ty = (h + fm.getAscent() - fm.getDescent()) / 2;
+
+                // glow
+                float pulse = 0.5f + 0.5f * (float) Math.sin(gradientPhase * 1.6f);
+                Color glow = BoardStyle.withAlpha(BoardStyle.ACTIVE_BORDER, Math.round(120 + 80 * pulse));
+                g2.setColor(BoardStyle.withAlpha(glow, 90));
+                g2.setStroke(new BasicStroke(8f));
+                g2.drawString(text, tx, ty);
+
+                g2.setColor(BoardStyle.TEXT_PRIMARY);
+                g2.drawString(text, tx, ty);
+                g2.dispose();
+            }
+        };
         titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        subtitleLabel = new JLabel(LanguageManager.get("menu.subtitle"));
-        subtitleLabel.setForeground(UITheme.TEXT_SECONDARY);
+        subtitleLabel = new JLabel(t("menu.subtitle"));
+        subtitleLabel.setForeground(BoardStyle.TEXT_SECONDARY);
         subtitleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        versionLabel = new JLabel("v" + VERSION);
-        versionLabel.setForeground(new Color(220, 220, 230));
+        versionLabel = new JLabel(tf("menu.version", VERSION));
+        versionLabel.setForeground(BoardStyle.TEXT_SECONDARY);
         versionLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         leftContent.add(Box.createVerticalGlue());
@@ -162,8 +197,7 @@ public class MainMenu extends JFrame {
         leftPanel.add(leftContent, new GridBagConstraints());
 
         rightPanel = new JPanel(new GridBagLayout());
-        rightPanel.setOpaque(true);
-        rightPanel.setBackground(UITheme.PANEL);
+        rightPanel.setOpaque(false);
         rightPanel.setBorder(BorderFactory.createEmptyBorder(10, 18, 10, 18));
 
         JPanel rightCard = new JPanel();
@@ -174,45 +208,30 @@ public class MainMenu extends JFrame {
         buttonsStack.setOpaque(false);
 
         // Player vs Player Button
-        pvpButton = createMenuButton(LanguageManager.get("menu.pvp"));
-        pvpButton.addActionListener(e -> {
-            soundManager.playSound("click");
-            soundManager.stopBackgroundMusic();
-            dispose();
-            new NsoloGame("PVP", null);
-        });
+        pvpButton = createMenuButton(t("menu.pvp"), BoardStyle.PLAYER_A);
+        pvpButton.addActionListener(e -> startFadeTransition("PVP"));
 
         // Player vs AI Easy Button
-        aiEasyButton = createMenuButton(LanguageManager.get("menu.ai.easy"));
-        aiEasyButton.addActionListener(e -> {
-            soundManager.playSound("click");
-            soundManager.stopBackgroundMusic();
-            dispose();
-            new NsoloGame("AI_EASY", null);
-        });
+        aiEasyButton = createMenuButton(t("menu.ai.easy"), BoardStyle.PLAYER_B);
+        aiEasyButton.addActionListener(e -> startFadeTransition("AI_EASY"));
 
         // Player vs AI Hard Button
-        aiHardButton = createMenuButton(LanguageManager.get("menu.ai.hard"));
-        aiHardButton.addActionListener(e -> {
-            soundManager.playSound("click");
-            soundManager.stopBackgroundMusic();
-            dispose();
-            new NsoloGame("AI_HARD", null);
-        });
+        aiHardButton = createMenuButton(t("menu.ai.hard"), BoardStyle.PLAYER_B);
+        aiHardButton.addActionListener(e -> startFadeTransition("AI_HARD"));
 
         // Settings / Accessibility & Language Button
-        settingsButton = createMenuButton(LanguageManager.get("menu.settings"));
+        settingsButton = createMenuButton(t("menu.settings"), BoardStyle.ACTIVE_BORDER);
         settingsButton.addActionListener(e -> {
-            soundManager.playSound("click");
-            showSettingsDialog();
+                    audioManager.playSfx("click");
+                    showSettingsDialog();
         });
 
         // Exit Button
-        exitButton = createMenuButton(LanguageManager.get("menu.exit"));
-        exitButton.setBackground(UITheme.ACCENT);
+        exitButton = createMenuButton(t("menu.exit"), BoardStyle.DANGER);
         exitButton.addActionListener(e -> {
-            soundManager.playSound("click");
-            System.exit(0);
+                    audioManager.playSfx("click");
+            audioManager.dispose();
+                    System.exit(0);
         });
 
         buttonsStack.add(pvpButton);
@@ -230,11 +249,14 @@ public class MainMenu extends JFrame {
         rootPanel.add(leftPanel, BorderLayout.WEST);
         rootPanel.add(rightPanel, BorderLayout.CENTER);
 
-        glowTimer = new Timer(33, e -> {
-            glowPhase += 0.06f;
-            leftPanel.repaint();
+        // Background animation timer: gradient + particles
+        bgTimer = new javax.swing.Timer(33, e -> {
+            gradientPhase += 0.028f;
+            updateParticles();
+            rootPanel.repaint();
         });
-        glowTimer.start();
+        initParticles();
+        bgTimer.start();
 
         addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
@@ -246,17 +268,17 @@ public class MainMenu extends JFrame {
         updateResponsiveMenuSizing();
     }
 
-    private StyledButton createMenuButton(String text) {
-        StyledButton button = new StyledButton(text, FONT_SCALE);
-        button.setFont(UITheme.getFont(FONT_SCALE, Font.BOLD, 18));
-        button.setAlignmentX(Component.CENTER_ALIGNMENT);
-        button.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(UITheme.BORDER, 2, true),
-                BorderFactory.createEmptyBorder(12, 18, 12, 18)
-        ));
+    private ArcadeButton createMenuButton(String text) {
+        return createMenuButton(text, BoardStyle.PLAYER_A);
+    }
 
-
-        return button;
+    private ArcadeButton createMenuButton(String text, Color baseColor) {
+        ArcadeButton btn = new ArcadeButton(text, baseColor, BoardStyle.mix(baseColor, Color.WHITE, 0.25f));
+        btn.setAlignmentX(Component.CENTER_ALIGNMENT);
+        btn.setForeground(BoardStyle.TEXT_PRIMARY);
+        btn.setFont(UITheme.getFont(FONT_SCALE, Font.BOLD, 18));
+        btn.setBorder(BorderFactory.createEmptyBorder(6, 14, 6, 14));
+        return btn;
     }
 
     private void updateResponsiveMenuSizing() {
@@ -279,7 +301,7 @@ public class MainMenu extends JFrame {
         subtitleLabel.setFont(UITheme.getFont(FONT_SCALE * scale, Font.ITALIC, subtitleSize));
         versionLabel.setFont(UITheme.getFont(FONT_SCALE * scale, Font.PLAIN, versionSize));
 
-        int buttonWidth = Math.max(280, Math.min(420, Math.round(frameW * 0.28f)));
+        int buttonWidth = Math.max(260, Math.min(520, Math.round(frameW * 0.30f)));
         int buttonHeight = Math.max(54, Math.min(76, Math.round(64 * scale)));
         int buttonFont = Math.max(15, Math.min(20, Math.round(18 * scale)));
         int gap = Math.max(8, Math.min(16, Math.round(12 * scale)));
@@ -291,7 +313,7 @@ public class MainMenu extends JFrame {
         int totalHeight = buttonHeight * 5 + gap * 4;
         buttonsStack.setPreferredSize(new Dimension(buttonWidth, totalHeight));
         buttonsStack.setMaximumSize(new Dimension(buttonWidth, totalHeight));
-        for (StyledButton button : new StyledButton[]{pvpButton, aiEasyButton, aiHardButton, settingsButton, exitButton}) {
+        for (ArcadeButton button : new ArcadeButton[]{pvpButton, aiEasyButton, aiHardButton, settingsButton, exitButton}) {
             button.setPreferredSize(buttonSize);
             button.setMaximumSize(new Dimension(Integer.MAX_VALUE, buttonHeight));
             button.setFont(UITheme.getFont(FONT_SCALE * scale, Font.BOLD, buttonFont));
@@ -309,11 +331,11 @@ public class MainMenu extends JFrame {
     }
 
     private void showSettingsDialog() {
-        JDialog dialog = new JDialog(this, LanguageManager.get("menu.settings"), true);
+        JDialog dialog = new JDialog(this, t("menu.settings"), true);
         dialog.setLayout(new BorderLayout(10, 10));
 
-        final float originalMusicVolume = soundManager.getMusicVolume();
-        final float originalSfxVolume = soundManager.getSfxVolume();
+        final float originalMusicVolume = audioManager.getMusicVolume();
+        final float originalSfxVolume = audioManager.getSfxVolume();
 
         JPanel mainPanel = new JPanel();
         mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
@@ -321,19 +343,19 @@ public class MainMenu extends JFrame {
 
         // Text size
         JPanel textSizePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        textSizePanel.add(new JLabel(LanguageManager.get("settings.textSize")));
-        String[] sizeOptions = {LanguageManager.get("settings.size.normal"), LanguageManager.get("settings.size.large")};
+        textSizePanel.add(new JLabel(t("settings.textSize")));
+        String[] sizeOptions = {t("settings.size.normal"), t("settings.size.large")};
         JComboBox<String> sizeCombo = new JComboBox<>(sizeOptions);
         sizeCombo.setSelectedIndex(FONT_SCALE > 1.0f ? 1 : 0);
         textSizePanel.add(sizeCombo);
 
         // High contrast
-        JCheckBox highContrastCheck = new JCheckBox(LanguageManager.get("settings.highContrast"), HIGH_CONTRAST);
+        JCheckBox highContrastCheck = new JCheckBox(t("settings.highContrast"), HIGH_CONTRAST);
 
         // Language
         JPanel languagePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        languagePanel.add(new JLabel(LanguageManager.get("settings.language")));
-        String[] langLabels = {"English", "Bemba", "Nyanja"};
+        languagePanel.add(new JLabel(t("settings.language")));
+        String[] langLabels = {t("settings.language.en"), t("settings.language.bem"), t("settings.language.ny")};
         String[] langCodes = {"en", "bem", "ny"};
         JComboBox<String> langCombo = new JComboBox<>(langLabels);
         int initialLangIndex = 0;
@@ -349,11 +371,11 @@ public class MainMenu extends JFrame {
         // Volumes
         JPanel volumesPanel = new JPanel();
         volumesPanel.setLayout(new BoxLayout(volumesPanel, BoxLayout.Y_AXIS));
-        volumesPanel.setBorder(BorderFactory.createTitledBorder(LanguageManager.get("settings.audio")));
+        volumesPanel.setBorder(BorderFactory.createTitledBorder(t("settings.audio")));
 
         JPanel musicPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        musicPanel.add(new JLabel(LanguageManager.get("settings.music")));
-        JSlider musicSlider = new JSlider(0, 100, (int) (soundManager.getMusicVolume() * 100));
+        musicPanel.add(new JLabel(t("settings.music")));
+        JSlider musicSlider = new JSlider(0, 100, (int) (audioManager.getMusicVolume() * 100));
         musicSlider.setPreferredSize(new Dimension(220, 30));
         musicSlider.setMajorTickSpacing(25);
         musicSlider.setPaintTicks(true);
@@ -361,12 +383,12 @@ public class MainMenu extends JFrame {
 
         musicSlider.addChangeListener(e -> {
             float newVolume = musicSlider.getValue() / 100f;
-            soundManager.previewMusicVolume(newVolume);
+            audioManager.previewMusicVolume(newVolume);
         });
 
         JPanel sfxPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        sfxPanel.add(new JLabel(LanguageManager.get("settings.sfx")));
-        JSlider sfxSlider = new JSlider(0, 100, (int) (soundManager.getSfxVolume() * 100));
+        sfxPanel.add(new JLabel(t("settings.sfx")));
+        JSlider sfxSlider = new JSlider(0, 100, (int) (audioManager.getSfxVolume() * 100));
         sfxSlider.setPreferredSize(new Dimension(220, 30));
         sfxSlider.setMajorTickSpacing(25);
         sfxSlider.setPaintTicks(true);
@@ -374,9 +396,9 @@ public class MainMenu extends JFrame {
 
         sfxSlider.addChangeListener(e -> {
             float newVolume = sfxSlider.getValue() / 100f;
-            soundManager.previewSfxVolume(newVolume);
+            audioManager.previewSfxVolume(newVolume);
             if (!sfxSlider.getValueIsAdjusting()) {
-                soundManager.playSfxPreview();
+                audioManager.playSfxPreview();
             }
         });
 
@@ -388,11 +410,11 @@ public class MainMenu extends JFrame {
         mainPanel.add(languagePanel);
         mainPanel.add(volumesPanel);
 
-        JLabel noteLabel = new JLabel(LanguageManager.get("settings.note"));
+        JLabel noteLabel = new JLabel(t("settings.note"));
         noteLabel.setFont(UITheme.getFont(FONT_SCALE, Font.PLAIN, 11));
 
         JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton okButton = new JButton(LanguageManager.get("common.ok"));
+        JButton okButton = new JButton(t("common.ok"));
         okButton.addActionListener(e -> {
             int idx = sizeCombo.getSelectedIndex();
             setFontScale(idx == 1 ? 1.2f : 1.0f);
@@ -400,15 +422,15 @@ public class MainMenu extends JFrame {
             setLanguageCode(langCodes[langCombo.getSelectedIndex()]);
             LanguageManager.load(LANGUAGE_CODE);
 
-            soundManager.setMusicVolume(musicSlider.getValue() / 100f);
-            soundManager.setSfxVolume(sfxSlider.getValue() / 100f);
+            audioManager.setMusicVolume(musicSlider.getValue() / 100f);
+            audioManager.setSfxVolume(sfxSlider.getValue() / 100f);
             dialog.dispose();
             refreshLocalizedText();
         });
-        JButton cancelButton = new JButton(LanguageManager.get("common.cancel"));
+        JButton cancelButton = new JButton(t("common.cancel"));
         cancelButton.addActionListener(e -> {
-            soundManager.previewMusicVolume(originalMusicVolume);
-            soundManager.previewSfxVolume(originalSfxVolume);
+            audioManager.previewMusicVolume(originalMusicVolume);
+            audioManager.previewSfxVolume(originalSfxVolume);
             dialog.dispose();
         });
         bottomPanel.add(cancelButton);
@@ -417,8 +439,8 @@ public class MainMenu extends JFrame {
         dialog.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
-                soundManager.previewMusicVolume(originalMusicVolume);
-                soundManager.previewSfxVolume(originalSfxVolume);
+                audioManager.previewMusicVolume(originalMusicVolume);
+                audioManager.previewSfxVolume(originalSfxVolume);
             }
         });
 
@@ -431,23 +453,109 @@ public class MainMenu extends JFrame {
         dialog.setVisible(true);
     }
 
+    // --- Particles & animations ---
+    private static final class Particle {
+        float x, y, vx, vy, size, alpha;
+        Color color;
+    }
+
+    private void initParticles() {
+        particles.clear();
+        int count = Math.max(12, getWidth() / 60);
+        Random rnd = new Random(42);
+        for (int i = 0; i < count; i++) {
+            Particle p = new Particle();
+            p.x = rnd.nextFloat() * Math.max(1, getWidth());
+            p.y = rnd.nextFloat() * Math.max(1, getHeight());
+            p.vx = (rnd.nextFloat() - 0.5f) * 0.6f;
+            p.vy = (rnd.nextFloat() - 0.3f) * 0.4f - 0.05f;
+            p.size = 2f + rnd.nextFloat() * 6f;
+            p.alpha = 0.08f + rnd.nextFloat() * 0.6f;
+            p.color = rnd.nextBoolean() ? BoardStyle.PLAYER_A : BoardStyle.PLAYER_B;
+            particles.add(p);
+        }
+    }
+
+    private void updateParticles() {
+        int w = Math.max(1, getWidth());
+        int h = Math.max(1, getHeight());
+        gradientPhase += 0.02f;
+        for (Particle p : particles) {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.alpha *= 0.995f;
+            if (p.x < -20 || p.x > w + 20 || p.y < -20 || p.y > h + 20 || p.alpha < 0.02f) {
+                Random rnd = new Random();
+                p.x = rnd.nextFloat() * w;
+                p.y = h + 8 + rnd.nextFloat() * 40;
+                p.vx = (rnd.nextFloat() - 0.5f) * 0.4f;
+                p.vy = -0.6f - rnd.nextFloat() * 0.6f;
+                p.size = 2f + rnd.nextFloat() * 6f;
+                p.alpha = 0.08f + rnd.nextFloat() * 0.6f;
+                p.color = rnd.nextBoolean() ? BoardStyle.PLAYER_A : BoardStyle.PLAYER_B;
+            }
+        }
+    }
+
+    // --- Fade transition to game ---
+    private void startFadeTransition(String mode) {
+        pendingMode = mode;
+        fadeAlpha = 0f;
+        if (fadeTimer != null && fadeTimer.isRunning()) fadeTimer.stop();
+        fadeTimer = new javax.swing.Timer(16, e -> {
+            fadeAlpha = Math.min(1f, fadeAlpha + 0.06f);
+            rootPanel.repaint();
+            if (fadeAlpha >= 1f) {
+                ((javax.swing.Timer) e.getSource()).stop();
+                // proceed to game
+                audioManager.playSfx("click");
+                SwingUtilities.invokeLater(() -> {
+                    handoffToGame = true;
+                    dispose();
+                    new NsoloGame(pendingMode, null);
+                });
+            }
+        });
+        fadeTimer.start();
+    }
+
     private void showRules() {
-        JTextArea textArea = new JTextArea(LanguageManager.get("rules.full"));
+        JTextArea textArea = new JTextArea(t("rules.full"));
         textArea.setEditable(false);
+        textArea.setLineWrap(true);
+        textArea.setWrapStyleWord(true);
         textArea.setFont(UITheme.getFont(FONT_SCALE, Font.PLAIN, 14));
         textArea.setBackground(UITheme.TEXT_SECONDARY);
 
-        JScrollPane scrollPane = new JScrollPane(textArea);
-        scrollPane.setPreferredSize(new Dimension(450, 400));
+        JPanel rulesPanel = new JPanel(new BorderLayout());
+        rulesPanel.setOpaque(false);
+        rulesPanel.setPreferredSize(new Dimension(520, 420));
+        textArea.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        rulesPanel.add(textArea, BorderLayout.CENTER);
 
-        JOptionPane.showMessageDialog(this, scrollPane, LanguageManager.get("menu.rules"), JOptionPane.INFORMATION_MESSAGE);
+        JOptionPane.showMessageDialog(this, rulesPanel, t("menu.rules"), JOptionPane.INFORMATION_MESSAGE);
     }
 
     private void refreshLocalizedText() {
-        getContentPane().removeAll();
-        setupGUI();
+        setTitle(t("app.title.menu"));
+        if (titleLabel != null) titleLabel.setText(t("menu.title"));
+        if (subtitleLabel != null) subtitleLabel.setText(t("menu.subtitle"));
+        if (versionLabel != null) versionLabel.setText(tf("menu.version", VERSION));
+        if (pvpButton != null) pvpButton.setText(t("menu.pvp"));
+        if (aiEasyButton != null) aiEasyButton.setText(t("menu.ai.easy"));
+        if (aiHardButton != null) aiHardButton.setText(t("menu.ai.hard"));
+        if (settingsButton != null) settingsButton.setText(t("menu.settings"));
+        if (exitButton != null) exitButton.setText(t("menu.exit"));
         revalidate();
         repaint();
+    }
+
+    private String t(String key) {
+        return LanguageManager.get(key);
+    }
+
+    private String tf(String key, Object... args) {
+        return LanguageManager.format(key, args);
     }
 
     public static void main(String[] args) {
@@ -457,9 +565,14 @@ public class MainMenu extends JFrame {
 
     @Override
     public void dispose() {
-        if (glowTimer != null) {
-            glowTimer.stop();
+        LanguageManager.removeLanguageChangeListener(languageChangeListener);
+        if (bgTimer != null) {
+            bgTimer.stop();
+        }
+        if (!handoffToGame && audioManager != null) {
+            audioManager.dispose();
         }
         super.dispose();
     }
 }
+
